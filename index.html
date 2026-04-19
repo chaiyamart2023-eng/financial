@@ -120,7 +120,6 @@
         setStatus('uploading');
         try {
           const base64Data = await compressImage(file);
-          // บันทึกรูปภาพลง Path สำหรับแลกเปลี่ยนข้อมูล
           await setDoc(doc(db, 'artifacts', erpAppId, 'public', 'data', 'transfers', transferId), {
             imageData: base64Data,
             timestamp: Date.now()
@@ -174,10 +173,8 @@
       );
     };
 
-
     // --- คอมโพเนนต์หลักของแอปพลิเคชัน ---
     function App() {
-      // ตรวจสอบพารามิเตอร์ว่าเป็นการสแกน QR มาจากมือถือหรือไม่
       const urlParams = new URLSearchParams(window.location.search);
       const transferIdParam = urlParams.get('transfer');
 
@@ -207,17 +204,15 @@
         templeName: 'วัดไชยามาตย์ จังหวัดแพร่',
       });
 
-      // Firebase Auth
+      // Firebase Auth & Data Fetching
       useEffect(() => {
         signInAnonymously(auth).catch(console.error);
         const unsubscribe = onAuthStateChanged(auth, setUser);
         return () => unsubscribe();
       }, []);
 
-      // Firebase Data Fetching (Shared Database for Temple)
       useEffect(() => {
         if (!user) return;
-
         setLoading(true);
 
         const inventoryRef = collection(db, 'artifacts', erpAppId, 'public', 'data', 'inventory');
@@ -254,7 +249,6 @@
             }
           });
 
-          // สร้างค่าตั้งต้นหากไม่มีข้อมูล
           if (!foundCats) {
             setDoc(doc(db, 'artifacts', erpAppId, 'public', 'data', 'settings', 'categories'), {
               income: ['บำรุงทั่วไป', 'กองทุนการศึกษา', 'สร้างถาวรวัตถุ', 'โรงทาน/ช่วยเหลือ'],
@@ -355,6 +349,9 @@
       const netBalance = totalIncome - totalExpense;
       const lowStockItems = inventory.filter(i => i.stock <= 10);
 
+      const selectedItemForCount = inventory.find(i => i.id === countForm.itemId);
+      const simulatedSoldQty = countForm.actualRemaining !== '' ? (selectedItemForCount?.stock - parseInt(countForm.actualRemaining)) : null;
+
       // --- Database Handlers ---
       const handleDonationSubmit = async (e) => {
         e.preventDefault();
@@ -380,6 +377,18 @@
         await setDoc(doc(db, 'artifacts', erpAppId, 'public', 'data', 'transactions', newTx.id), newTx);
         setExpenseForm({ title: '', category: expenseCategories[0] || '', amount: '', payee: '', detailsUrl: '' });
         showToast('บันทึกรายจ่ายเรียบร้อย');
+      };
+      
+      const handleDeleteTransaction = async (txId) => {
+        if (!user) return;
+        if (!window.confirm('ยืนยันการลบรายการบัญชีนี้? (การกระทำนี้ไม่สามารถย้อนกลับได้)')) return;
+        try {
+          await deleteDoc(doc(db, 'artifacts', erpAppId, 'public', 'data', 'transactions', txId));
+          showToast('ลบรายการบัญชีเรียบร้อย');
+        } catch(err) {
+          console.error(err);
+          alert('เกิดข้อผิดพลาดในการลบรายการ');
+        }
       };
 
       const handleStockCountSubmit = async (e) => {
@@ -419,6 +428,18 @@
         showToast('เพิ่มรายการวัตถุมงคลเข้าคลังเรียบร้อย');
       };
 
+      const handleDeleteInventory = async (itemId, itemName) => {
+        if (!user) return;
+        if (!window.confirm(`ยืนยันการลบ "${itemName}" ออกจากคลังสินค้า? (การกระทำนี้ไม่สามารถย้อนกลับได้)`)) return;
+        try {
+          await deleteDoc(doc(db, 'artifacts', erpAppId, 'public', 'data', 'inventory', itemId));
+          showToast('ลบรายการสินค้าเรียบร้อย');
+        } catch(err) {
+          console.error(err);
+          alert('เกิดข้อผิดพลาดในการลบรายการ');
+        }
+      };
+
       const handleSaveGeneralSettings = async (e) => {
         e.preventDefault();
         if (!user) return;
@@ -443,6 +464,17 @@
         if (!user || !window.confirm(`ยืนยันการลบหมวดหมู่ "${valueToDelete}" ?`)) return;
         const currentList = type === 'income' ? incomeCategories : expenseCategories;
         await setDoc(doc(db, 'artifacts', erpAppId, 'public', 'data', 'settings', 'categories'), { [type]: currentList.filter(cat => cat !== valueToDelete) }, { merge: true });
+      };
+
+      const openEditModal = (item) => {
+        setEditingItem(item);
+        setEditForm({
+          name: item.name,
+          price: item.price,
+          stockAdjustType: 'none',
+          stockAdjustValue: '',
+          reason: ''
+        });
       };
 
       const handleSaveEdit = async (e) => {
@@ -472,7 +504,6 @@
         showToast('บันทึกการแก้ไขรายการเรียบร้อย');
       };
 
-
       // --- วิดเจ็ตฟอร์มอัปโหลดรูปภาพหลักฐานแบบใหม่ ---
       const renderImageUploadField = (formState, setFormState) => {
         const isImageBase64 = formState.detailsUrl && formState.detailsUrl.startsWith('data:image');
@@ -489,12 +520,12 @@
                 </div>
               </div>
             ) : (
-              <div className="flex gap-2 items-center">
-                <button type="button" onClick={() => openQrSync(formState === donationForm ? 'donation' : 'expense')} className="flex-1 bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 py-3 rounded-lg transition flex items-center justify-center gap-2 font-bold shadow-sm">
+              <div className="flex flex-col sm:flex-row gap-2 items-center">
+                <button type="button" onClick={() => openQrSync(formState === donationForm ? 'donation' : 'expense')} className="w-full sm:w-1/2 bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 py-3 rounded-lg transition flex items-center justify-center gap-2 font-bold shadow-sm">
                   <Camera className="w-5 h-5"/> สแกน QR ถ่ายรูป
                 </button>
                 <span className="text-slate-400 text-sm font-medium px-2">หรือ</span>
-                <input type="url" value={formState.detailsUrl} onChange={e=>setFormState({...formState, detailsUrl: e.target.value})} className="flex-1 px-4 py-3 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition text-sm" placeholder="วางลิงก์รูปภาพทั่วไป"/>
+                <input type="url" value={formState.detailsUrl} onChange={e=>setFormState({...formState, detailsUrl: e.target.value})} className="w-full sm:w-1/2 px-4 py-3 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition text-sm" placeholder="วางลิงก์รูปภาพ"/>
               </div>
             )}
           </div>
@@ -526,14 +557,18 @@
             </div>
             <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
               <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition ${activeTab === 'dashboard' ? 'bg-blue-600 text-white font-medium shadow-md' : 'hover:bg-slate-800 hover:text-white'}`}><LayoutDashboard className="w-5 h-5" /> ภาพรวม</button>
+              
               <div className="pt-4 pb-2 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">ระบบรายงาน</div>
               <button onClick={() => setActiveTab('dailyReport')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition ${activeTab === 'dailyReport' ? 'bg-blue-600 text-white font-medium shadow-md' : 'hover:bg-slate-800 hover:text-white'}`}><CalendarDays className="w-5 h-5" /> พิมพ์รายงานประจำวัน</button>
-              <div className="pt-4 pb-2 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">ระบบรายได้</div>
+              
+              <div className="pt-4 pb-2 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">ระบบรายได้ / สินทรัพย์</div>
               <button onClick={() => setActiveTab('donation')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition ${activeTab === 'donation' ? 'bg-emerald-600 text-white font-medium shadow-md' : 'hover:bg-slate-800 hover:text-white'}`}><HandHeart className="w-5 h-5" /> รายรับรวบยอด</button>
               <button onClick={() => setActiveTab('inventory')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition ${activeTab === 'inventory' ? 'bg-indigo-600 text-white font-medium shadow-md' : 'hover:bg-slate-800 hover:text-white'}`}><PackageSearch className="w-5 h-5" /> เช่าบูชา & นับสต๊อก</button>
+              
               <div className="pt-4 pb-2 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">ระบบรายจ่าย</div>
               <button onClick={() => setActiveTab('expense')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition ${activeTab === 'expense' ? 'bg-rose-600 text-white font-medium shadow-md' : 'hover:bg-slate-800 hover:text-white'}`}><Receipt className="w-5 h-5" /> บันทึกเบิกจ่าย</button>
-              <div className="pt-4 pb-2 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">ตั้งค่าระบบ</div>
+              
+              <div className="pt-4 pb-2 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">บัญชีรวม & ตั้งค่า</div>
               <button onClick={() => setActiveTab('ledger')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition ${activeTab === 'ledger' ? 'bg-slate-700 text-white font-medium shadow-md' : 'hover:bg-slate-800 hover:text-white'}`}><BookOpen className="w-5 h-5" /> สมุดรายวันทั่วไป</button>
               <button onClick={() => setActiveTab('admin')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition ${activeTab === 'admin' ? 'bg-slate-700 text-white font-medium shadow-md' : 'hover:bg-slate-800 hover:text-white'}`}><ShieldCheck className="w-5 h-5" /> ตั้งค่าระบบ</button>
             </nav>
@@ -541,6 +576,8 @@
 
           {/* Main Content Area */}
           <div className="flex-1 flex flex-col h-full overflow-hidden relative print:overflow-visible">
+            
+            {/* Mobile Header */}
             <div className="md:hidden bg-slate-900 text-white p-4 flex justify-between items-center shadow-md print:hidden shrink-0">
               <div className="flex items-center gap-2 overflow-hidden"><Landmark className="w-6 h-6 text-amber-500 shrink-0"/> <span className="font-bold truncate">{generalSettings.templeName}</span></div>
               <select value={activeTab} onChange={(e) => setActiveTab(e.target.value)} className="bg-slate-800 text-sm border-none rounded p-2 outline-none ml-2 shrink-0">
@@ -549,92 +586,242 @@
               </select>
             </div>
 
+            {/* Floating Notification */}
             {notifications && (
               <div className="absolute top-6 right-6 z-50 bg-emerald-600 text-white px-6 py-3 rounded-xl shadow-2xl flex items-center gap-3 animate-in fade-in print:hidden">
                 <Save className="w-4 h-4"/><span className="font-medium text-sm">{notifications}</span>
               </div>
             )}
 
+            {/* Content Scrollable Area */}
             <main className="flex-1 overflow-y-auto p-4 md:p-8 print:p-0 bg-slate-50 print:bg-white">
               <div className="max-w-6xl mx-auto print:max-w-none">
                 
-                {/* Views */}
+                {/* --- Dashboard View --- */}
                 {activeTab === 'dashboard' && (
                   <div className="space-y-6 animate-in fade-in">
                     <div className="flex justify-between items-end">
-                      <div><h2 className="text-2xl font-bold text-slate-800">ภาพรวมสถานะการเงิน (Dashboard)</h2><p className="text-slate-500">อัปเดต ณ {new Date().toLocaleDateString('th-TH')}</p></div>
+                      <div>
+                        <h2 className="text-2xl font-bold text-slate-800">ภาพรวมสถานะการเงิน (Dashboard)</h2>
+                        <p className="text-slate-500">อัปเดต ณ {new Date().toLocaleDateString('th-TH')}</p>
+                      </div>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                      <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-6 text-white shadow-lg"><p className="text-slate-300 text-sm font-medium mb-2">ยอดยกไปรวมทั้งหมด</p><h3 className="text-3xl font-bold mb-4">{formatMoney(totalIncome - totalExpense)}</h3></div>
-                      <div className="bg-white border rounded-2xl p-6 shadow-sm"><p className="text-slate-500 text-sm font-medium mb-2">รวมรายรับทั้งหมด</p><h3 className="text-2xl font-bold text-emerald-600">{formatMoney(totalIncome)}</h3></div>
-                      <div className="bg-white border rounded-2xl p-6 shadow-sm"><p className="text-slate-500 text-sm font-medium mb-2">รวมรายจ่ายทั้งหมด</p><h3 className="text-2xl font-bold text-rose-600">{formatMoney(totalExpense)}</h3></div>
-                      <div className="bg-white border rounded-2xl p-6 shadow-sm"><p className="text-slate-500 text-sm font-medium mb-2">สต๊อกใกล้หมด</p>
-                        {lowStockItems.slice(0,3).map(item => <div key={item.id} className="flex justify-between text-sm border-b py-1"><span className="truncate pr-2">{item.name}</span><span className="text-rose-500 font-bold">{item.stock}</span></div>)}
+                      <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-6 text-white shadow-lg">
+                        <p className="text-slate-300 text-sm font-medium mb-2">ยอดยกไปรวมทั้งหมด</p>
+                        <h3 className="text-3xl font-bold mb-4">{formatMoney(totalIncome - totalExpense)}</h3>
+                      </div>
+                      <div className="bg-white border rounded-2xl p-6 shadow-sm">
+                        <p className="text-slate-500 text-sm font-medium mb-2">รวมรายรับทั้งหมด</p>
+                        <h3 className="text-2xl font-bold text-emerald-600">{formatMoney(totalIncome)}</h3>
+                      </div>
+                      <div className="bg-white border rounded-2xl p-6 shadow-sm">
+                        <p className="text-slate-500 text-sm font-medium mb-2">รวมรายจ่ายทั้งหมด</p>
+                        <h3 className="text-2xl font-bold text-rose-600">{formatMoney(totalExpense)}</h3>
+                      </div>
+                      <div className="bg-white border rounded-2xl p-6 shadow-sm overflow-hidden">
+                        <p className="text-slate-500 text-sm font-medium mb-2 flex items-center gap-2"><AlertCircle className="w-4 h-4 text-amber-500"/> สต๊อกใกล้หมด</p>
+                        {lowStockItems.length > 0 ? (
+                          <div className="space-y-2 mt-3">
+                            {lowStockItems.slice(0,3).map(item => (
+                              <div key={item.id} className="flex justify-between text-sm border-b pb-1">
+                                <span className="truncate pr-2">{item.name}</span>
+                                <span className="text-rose-500 font-bold bg-rose-50 px-2 py-0.5 rounded text-xs">{item.stock}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-slate-400 mt-4">สต๊อกอยู่ในเกณฑ์ปกติ</p>
+                        )}
                       </div>
                     </div>
                   </div>
                 )}
 
+                {/* --- Donation View --- */}
                 {activeTab === 'donation' && (
                   <div className="space-y-6 animate-in fade-in">
-                    <div className="flex items-center gap-3 mb-6"><div className="bg-emerald-100 p-3 rounded-xl"><HandHeart className="w-6 h-6 text-emerald-600" /></div><div><h2 className="text-2xl font-bold text-slate-800">บันทึกรายรับรวบยอด</h2><p className="text-slate-500 text-sm">บันทึกยอดสรุป พร้อมสแกนแนบใบเสร็จเพื่อความโปร่งใส</p></div></div>
-                    <div className="bg-white p-6 rounded-2xl shadow-sm border max-w-2xl">
-                      <form onSubmit={handleDonationSubmit} className="space-y-4">
-                        <div><label className="block text-sm font-semibold mb-1">รายการสรุปยอด / แหล่งที่มา</label><input required type="text" value={donationForm.title} onChange={e=>setDonationForm({...donationForm, title: e.target.value})} className="w-full px-4 py-2 bg-slate-50 border rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"/></div>
-                        <div><label className="block text-sm font-semibold mb-1">หมวดหมู่รายรับ</label><select value={donationForm.purpose} onChange={e=>setDonationForm({...donationForm, purpose: e.target.value})} className="w-full px-4 py-2 bg-slate-50 border rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none">{incomeCategories.map((cat, idx) => <option key={idx} value={cat}>{cat}</option>)}</select></div>
+                    <div className="flex items-center gap-3 mb-6">
+                      <div className="bg-emerald-100 p-3 rounded-xl"><HandHeart className="w-6 h-6 text-emerald-600" /></div>
+                      <div>
+                        <h2 className="text-2xl font-bold text-slate-800">บันทึกรายรับรวบยอด</h2>
+                        <p className="text-slate-500 text-sm">บันทึกยอดสรุป พร้อมสแกนแนบใบเสร็จเพื่อความโปร่งใส</p>
+                      </div>
+                    </div>
+                    <div className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border max-w-2xl">
+                      <form onSubmit={handleDonationSubmit} className="space-y-6">
+                        <div>
+                          <label className="block text-sm font-semibold mb-2">รายการสรุปยอด / แหล่งที่มา</label>
+                          <input required type="text" value={donationForm.title} onChange={e=>setDonationForm({...donationForm, title: e.target.value})} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="เช่น ยอดบริจาคประจำเดือน, เงินจากตู้บริจาค"/>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-semibold mb-2">หมวดหมู่รายรับ</label>
+                          <select value={donationForm.purpose} onChange={e=>setDonationForm({...donationForm, purpose: e.target.value})} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none">
+                            {incomeCategories.map((cat, idx) => <option key={idx} value={cat}>{cat}</option>)}
+                          </select>
+                        </div>
+                        
                         {renderImageUploadField(donationForm, setDonationForm)}
-                        <div><label className="block text-sm font-semibold mb-1">จำนวนเงินรวม (บาท)</label><input required type="number" min="1" value={donationForm.amount} onChange={e=>setDonationForm({...donationForm, amount: e.target.value})} className="w-full px-4 py-2 bg-slate-50 border rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-emerald-600 font-bold text-lg"/></div>
-                        <button type="submit" className="w-full bg-emerald-600 text-white font-bold py-3 rounded-lg hover:bg-emerald-700 flex items-center justify-center gap-2"><Save className="w-5 h-5"/> บันทึกยอดรับ</button>
+                        
+                        <div>
+                          <label className="block text-sm font-semibold mb-2">จำนวนเงินรวม (บาท)</label>
+                          <input required type="number" min="1" value={donationForm.amount} onChange={e=>setDonationForm({...donationForm, amount: e.target.value})} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-emerald-600 font-bold text-xl" placeholder="0.00"/>
+                        </div>
+                        <button type="submit" className="w-full bg-emerald-600 text-white font-bold py-4 rounded-xl hover:bg-emerald-700 flex items-center justify-center gap-2 shadow-sm"><Save className="w-5 h-5"/> บันทึกยอดรับ</button>
                       </form>
                     </div>
                   </div>
                 )}
 
+                {/* --- Expense View --- */}
                 {activeTab === 'expense' && (
                   <div className="space-y-6 animate-in fade-in">
-                    <div className="flex items-center gap-3 mb-6"><div className="bg-rose-100 p-3 rounded-xl"><Receipt className="w-6 h-6 text-rose-600" /></div><div><h2 className="text-2xl font-bold text-slate-800">ระบบเบิกจ่าย (Expenses)</h2></div></div>
-                    <div className="bg-white p-6 rounded-2xl shadow-sm border max-w-2xl">
-                      <form onSubmit={handleExpenseSubmit} className="space-y-4">
-                        <div><label className="block text-sm font-semibold mb-1">รายการเบิกจ่าย</label><input required type="text" value={expenseForm.title} onChange={e=>setExpenseForm({...expenseForm, title: e.target.value})} className="w-full px-4 py-2 bg-slate-50 border rounded-lg focus:ring-2 focus:ring-rose-500 outline-none"/></div>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div><label className="block text-sm font-semibold mb-1">หมวดหมู่</label><select value={expenseForm.category} onChange={e=>setExpenseForm({...expenseForm, category: e.target.value})} className="w-full px-4 py-2 bg-slate-50 border rounded-lg outline-none">{expenseCategories.map((cat, idx) => <option key={idx} value={cat}>{cat}</option>)}</select></div>
-                          <div><label className="block text-sm font-semibold mb-1">ผู้รับเงิน</label><input type="text" value={expenseForm.payee} onChange={e=>setExpenseForm({...expenseForm, payee: e.target.value})} className="w-full px-4 py-2 bg-slate-50 border rounded-lg outline-none"/></div>
+                    <div className="flex items-center gap-3 mb-6">
+                      <div className="bg-rose-100 p-3 rounded-xl"><Receipt className="w-6 h-6 text-rose-600" /></div>
+                      <div>
+                        <h2 className="text-2xl font-bold text-slate-800">ระบบเบิกจ่าย (Expenses)</h2>
+                        <p className="text-slate-500 text-sm">จัดการค่าใช้จ่ายต่างๆ ออกใบสำคัญจ่าย และบันทึกลงสมุดรายวัน</p>
+                      </div>
+                    </div>
+                    <div className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border max-w-2xl">
+                      <form onSubmit={handleExpenseSubmit} className="space-y-6">
+                        <div>
+                          <label className="block text-sm font-semibold mb-2">รายการเบิกจ่าย</label>
+                          <input required type="text" value={expenseForm.title} onChange={e=>setExpenseForm({...expenseForm, title: e.target.value})} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-rose-500 outline-none" placeholder="เช่น ค่าวัสดุอุปกรณ์ทำความสะอาด"/>
                         </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm font-semibold mb-2">หมวดหมู่ค่าใช้จ่าย</label>
+                            <select value={expenseForm.category} onChange={e=>setExpenseForm({...expenseForm, category: e.target.value})} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-rose-500">
+                              {expenseCategories.map((cat, idx) => <option key={idx} value={cat}>{cat}</option>)}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-semibold mb-2">ผู้รับเงิน (Payee)</label>
+                            <input type="text" value={expenseForm.payee} onChange={e=>setExpenseForm({...expenseForm, payee: e.target.value})} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-rose-500" placeholder="ชื่อร้าน หรือ บุคคล"/>
+                          </div>
+                        </div>
+                        
                         {renderImageUploadField(expenseForm, setExpenseForm)}
-                        <div><label className="block text-sm font-semibold mb-1">จำนวนเงิน (บาท)</label><input required type="number" min="1" value={expenseForm.amount} onChange={e=>setExpenseForm({...expenseForm, amount: e.target.value})} className="w-full px-4 py-2 bg-slate-50 border rounded-lg focus:ring-2 focus:ring-rose-500 outline-none text-rose-600 font-bold text-lg"/></div>
-                        <button type="submit" className="w-full bg-rose-600 text-white font-bold py-3 rounded-lg hover:bg-rose-700 flex items-center justify-center gap-2"><Save className="w-5 h-5"/> บันทึกเบิกจ่าย</button>
+                        
+                        <div>
+                          <label className="block text-sm font-semibold mb-2">จำนวนเงิน (บาท)</label>
+                          <input required type="number" min="1" value={expenseForm.amount} onChange={e=>setExpenseForm({...expenseForm, amount: e.target.value})} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-rose-500 outline-none text-rose-600 font-bold text-xl" placeholder="0.00"/>
+                        </div>
+                        <button type="submit" className="w-full bg-rose-600 text-white font-bold py-4 rounded-xl hover:bg-rose-700 flex items-center justify-center gap-2 shadow-sm"><Save className="w-5 h-5"/> บันทึกเบิกจ่าย</button>
                       </form>
                     </div>
                   </div>
                 )}
 
+                {/* --- Inventory View --- */}
                 {activeTab === 'inventory' && (
                   <div className="space-y-6 animate-in fade-in">
-                    <h2 className="text-2xl font-bold text-slate-800 mb-6">จัดการคลังวัตถุมงคล</h2>
+                    <div className="flex items-center gap-3 mb-6">
+                      <div className="bg-indigo-100 p-3 rounded-xl"><PackageSearch className="w-6 h-6 text-indigo-600" /></div>
+                      <div>
+                        <h2 className="text-2xl font-bold text-slate-800">จัดการเช่าบูชา และตรวจนับสต๊อก</h2>
+                        <p className="text-slate-500 text-sm">กรอก "ยอดที่เหลืออยู่จริง" ระบบจะคำนวณจำหน่ายและบันทึกรายรับให้อัตโนมัติ</p>
+                      </div>
+                    </div>
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                      <div className="bg-white p-6 rounded-2xl shadow-sm border"><h3 className="font-bold mb-4 border-b pb-2">อัปเดตยอดนับจริง (ตัดสต๊อก)</h3>
-                        <form onSubmit={handleStockCountSubmit} className="space-y-4">
-                          <select required value={countForm.itemId} onChange={e=>setCountForm({...countForm, itemId: e.target.value, actualRemaining: ''})} className="w-full px-4 py-2 bg-slate-50 border rounded-lg"><option value="" disabled>-- เลือกวัตถุมงคล --</option>{inventory.map(item => <option key={item.id} value={item.id}>{item.name} (ในระบบ: {item.stock})</option>)}</select>
-                          <input required type="number" min="0" value={countForm.actualRemaining} onChange={e=>setCountForm({...countForm, actualRemaining: e.target.value})} className="w-full px-4 py-3 bg-white border rounded-lg text-center font-bold text-xl text-indigo-700" placeholder="ยอดคงเหลือที่นับได้จริง" disabled={!countForm.itemId}/>
-                          <button type="submit" disabled={!countForm.itemId} className="w-full bg-indigo-600 text-white font-bold py-3 rounded-lg hover:bg-indigo-700">ยืนยันยอดคงเหลือ</button>
+                      
+                      {/* ตัดสต๊อก */}
+                      <div className="lg:col-span-1 bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                        <h3 className="font-bold text-slate-800 mb-6 border-b pb-3 flex items-center gap-2"><Wallet className="w-5 h-5 text-indigo-500"/> อัปเดตยอดคงเหลือ / บันทึกขาย</h3>
+                        <form onSubmit={handleStockCountSubmit} className="space-y-5">
+                          <div>
+                            <label className="block text-sm font-semibold text-slate-700 mb-2">เลือกรายการวัตถุมงคล</label>
+                            <select required value={countForm.itemId} onChange={e=>setCountForm({...countForm, itemId: e.target.value, actualRemaining: ''})} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none">
+                              <option value="" disabled>-- กรุณาเลือก --</option>
+                              {inventory.map(item => <option key={item.id} value={item.id}>{item.name} (ในระบบ: {item.stock})</option>)}
+                            </select>
+                          </div>
+                          <div className="bg-indigo-50/50 p-5 rounded-xl border border-indigo-100">
+                            <label className="block text-sm font-semibold text-slate-700 mb-2 text-center">ระบุยอดนับจริง (ที่เหลืออยู่)</label>
+                            <input required type="number" min="0" max={inventory.find(i=>i.id===countForm.itemId)?.stock || 0} value={countForm.actualRemaining} onChange={e=>setCountForm({...countForm, actualRemaining: e.target.value})} className="w-full px-4 py-4 bg-white border border-indigo-200 rounded-lg text-center font-bold text-2xl text-indigo-700 shadow-sm outline-none focus:ring-2 focus:ring-indigo-500" placeholder="0" disabled={!countForm.itemId}/>
+                          </div>
+
+                          {selectedItemForCount && countForm.actualRemaining !== '' && !isNaN(simulatedSoldQty) && (
+                            <div className="mt-4 p-4 border border-blue-100 rounded-xl bg-blue-50/50 shadow-sm animate-in slide-in-from-top-2">
+                              <p className="text-xs text-slate-500 mb-2 text-center font-bold">คำนวณการจำหน่ายล่วงหน้า</p>
+                              <div className="flex justify-between items-center text-sm font-medium text-slate-700 mb-1.5">
+                                <span>สต๊อกในระบบ:</span><span>{selectedItemForCount.stock}</span>
+                              </div>
+                              <div className="flex justify-between items-center text-sm font-bold text-rose-600 mb-3">
+                                <span>จำหน่ายออก:</span><span>- {simulatedSoldQty} ชิ้น</span>
+                              </div>
+                              <div className="flex justify-between items-center font-bold text-emerald-600 border-t border-blue-200 pt-3">
+                                <span>รายรับที่จะบันทึก:</span>
+                                <span className="text-lg">{formatMoney(simulatedSoldQty * selectedItemForCount.price)}</span>
+                              </div>
+                            </div>
+                          )}
+
+                          <button type="submit" disabled={!countForm.itemId || countForm.actualRemaining === ''} className="w-full bg-indigo-600 text-white font-bold py-4 rounded-xl hover:bg-indigo-700 transition flex items-center justify-center gap-2 disabled:opacity-50 mt-2"><Save className="w-5 h-5"/> ยืนยันยอดคงเหลือ</button>
                         </form>
                       </div>
+
+                      {/* ตารางสต๊อก */}
                       <div className="lg:col-span-2 space-y-6">
-                        <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
-                          <div className="max-h-[300px] overflow-y-auto">
-                            <table className="w-full text-left text-sm"><thead className="bg-slate-50 sticky top-0"><tr><th className="px-6 py-3">รหัส</th><th className="px-6 py-3">ชื่อรายการ</th><th className="px-6 py-3 text-right">ราคา</th><th className="px-6 py-3 text-center">คงเหลือ</th><th className="px-6 py-3 text-center">จัดการ</th></tr></thead>
-                              <tbody className="divide-y">{inventory.map(item => (
-                                <tr key={item.id}><td className="px-6 py-3 font-mono text-xs text-slate-400">{item.id}</td><td className="px-6 py-3">{item.name}</td><td className="px-6 py-3 text-right text-indigo-600 font-semibold">{formatMoney(item.price)}</td><td className="px-6 py-3 text-center font-bold">{item.stock}</td><td className="px-6 py-3 text-center"><button onClick={() => openEditModal(item)} className="text-slate-400 hover:text-blue-600"><Edit2 className="w-4 h-4" /></button></td></tr>
-                              ))}</tbody>
+                        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                          <div className="px-6 py-4 border-b bg-slate-50 flex justify-between items-center">
+                            <h3 className="font-bold text-slate-800">รายการวัตถุมงคลคงคลัง (Stock)</h3>
+                            <span className="text-xs bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full font-bold">มี {inventory.length} รายการ</span>
+                          </div>
+                          <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
+                            <table className="w-full text-left text-sm whitespace-nowrap">
+                              <thead className="bg-white text-slate-500 sticky top-0 shadow-sm">
+                                <tr>
+                                  <th className="px-6 py-3 font-medium">รหัส</th>
+                                  <th className="px-6 py-3 font-medium">ชื่อรายการ</th>
+                                  <th className="px-6 py-3 font-medium text-right">ราคา/ชิ้น</th>
+                                  <th className="px-6 py-3 font-medium text-center">คงเหลือ</th>
+                                  <th className="px-6 py-3 font-medium text-center">จัดการ</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100">
+                                {inventory.map(item => (
+                                  <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                                    <td className="px-6 py-3 font-mono text-xs text-slate-400">{item.id}</td>
+                                    <td className="px-6 py-3 font-medium text-slate-800">{item.name}</td>
+                                    <td className="px-6 py-3 text-right text-indigo-600 font-bold">{formatMoney(item.price)}</td>
+                                    <td className="px-6 py-3 text-center">
+                                      <span className={`px-2 py-1 rounded text-xs font-bold ${item.stock <= 10 ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-700'}`}>{item.stock}</span>
+                                    </td>
+                                    <td className="px-6 py-3 text-center">
+                                      <div className="flex justify-center gap-2">
+                                        <button onClick={() => openEditModal(item)} className="text-slate-400 hover:text-blue-600 bg-slate-100 hover:bg-blue-100 p-1.5 rounded transition" title="แก้ไข/ปรับสต๊อก"><Edit2 className="w-4 h-4" /></button>
+                                        <button onClick={() => handleDeleteInventory(item.id, item.name)} className="text-slate-400 hover:text-rose-600 bg-slate-100 hover:bg-rose-100 p-1.5 rounded transition" title="ลบรายการสินค้า"><Trash2 className="w-4 h-4" /></button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                ))}
+                                {inventory.length === 0 && <tr><td colSpan="5" className="px-6 py-8 text-center text-slate-500">ยังไม่มีรายการสินค้าในคลัง</td></tr>}
+                              </tbody>
                             </table>
                           </div>
                         </div>
-                        <div className="bg-slate-50 p-6 rounded-2xl border border-dashed"><h4 className="font-bold mb-4">เพิ่มรายการใหม่เข้าคลัง</h4>
-                          <form onSubmit={handleAddInventory} className="flex gap-4 items-end">
-                            <div className="flex-1"><label className="block text-xs mb-1">ชื่อ</label><input required type="text" value={newItemForm.name} onChange={e=>setNewItemForm({...newItemForm, name: e.target.value})} className="w-full px-3 py-2 border rounded-lg"/></div>
-                            <div className="w-24"><label className="block text-xs mb-1">ราคา</label><input required type="number" value={newItemForm.price} onChange={e=>setNewItemForm({...newItemForm, price: e.target.value})} className="w-full px-3 py-2 border rounded-lg"/></div>
-                            <div className="w-24"><label className="block text-xs mb-1">จำนวน</label><input required type="number" value={newItemForm.stock} onChange={e=>setNewItemForm({...newItemForm, stock: e.target.value})} className="w-full px-3 py-2 border rounded-lg"/></div>
-                            <button type="submit" className="bg-slate-800 text-white p-2 rounded-lg hover:bg-slate-700"><Plus className="w-5 h-5"/></button>
+
+                        {/* ฟอร์มเพิ่มสินค้า */}
+                        <div className="bg-indigo-50 p-6 rounded-2xl border border-indigo-100 border-dashed">
+                          <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><Plus className="w-5 h-5 text-indigo-600"/> เพิ่มรายการใหม่เข้าคลัง (Initial Stock)</h4>
+                          <form onSubmit={handleAddInventory} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                            <div className="md:col-span-2">
+                              <label className="block text-xs font-semibold text-slate-600 mb-1">ชื่อรายการใหม่</label>
+                              <input required type="text" value={newItemForm.name} onChange={e=>setNewItemForm({...newItemForm, name: e.target.value})} className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500" placeholder="เช่น เหรียญรุ่นชนะศึก"/>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold text-slate-600 mb-1">ราคาบูชา</label>
+                              <input required type="number" min="0" value={newItemForm.price} onChange={e=>setNewItemForm({...newItemForm, price: e.target.value})} className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500" placeholder="0"/>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold text-slate-600 mb-1">จำนวนรับเข้า</label>
+                              <div className="flex gap-2">
+                                <input required type="number" min="1" value={newItemForm.stock} onChange={e=>setNewItemForm({...newItemForm, stock: e.target.value})} className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500" placeholder="0"/>
+                                <button type="submit" className="bg-indigo-600 text-white px-4 py-2.5 rounded-lg hover:bg-indigo-700 transition shadow-sm"><Plus className="w-5 h-5"/></button>
+                              </div>
+                            </div>
                           </form>
                         </div>
                       </div>
@@ -642,56 +829,258 @@
                   </div>
                 )}
 
+                {/* --- Ledger View --- */}
                 {activeTab === 'ledger' && (
                   <div className="space-y-6 animate-in fade-in">
-                    <h2 className="text-2xl font-bold text-slate-800 mb-6">สมุดรายวันทั่วไป</h2>
+                    <div className="flex items-center gap-3 mb-6">
+                      <div className="bg-slate-800 p-3 rounded-xl"><BookOpen className="w-6 h-6 text-white" /></div>
+                      <div>
+                        <h2 className="text-2xl font-bold text-slate-800">สมุดรายวันทั่วไป (General Ledger)</h2>
+                        <p className="text-slate-500 text-sm">บันทึกประวัติธุรกรรมทั้งหมด ขาเข้าและขาออก</p>
+                      </div>
+                    </div>
                     <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
                       <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm whitespace-nowrap"><thead className="bg-slate-50 border-b"><tr><th className="px-6 py-4">วัน/เวลา</th><th className="px-6 py-4">Ref.</th><th className="px-6 py-4">รายการ</th><th className="px-6 py-4">หมวดหมู่</th><th className="px-6 py-4 text-right text-emerald-700">รายรับ</th><th className="px-6 py-4 text-right text-rose-700">รายจ่าย</th></tr></thead>
-                          <tbody className="divide-y">{transactions.map(tx => (
-                            <tr key={tx.id}><td className="px-6 py-4 text-slate-500">{tx.date}</td><td className="px-6 py-4 font-mono text-xs">{tx.id}</td>
-                              <td className="px-6 py-4"><div className="flex items-center gap-2"><span>{tx.title}</span>{tx.detailsUrl && <button onClick={() => setPreviewImage(tx.detailsUrl)} className="text-blue-500 bg-blue-50 p-1.5 rounded-md"><ImageIcon className="w-4 h-4" /></button>}</div></td>
-                              <td className="px-6 py-4"><span className="px-2.5 py-1 bg-slate-100 rounded-md text-xs">{tx.category}</span></td><td className="px-6 py-4 text-right font-bold text-emerald-600">{tx.type === 'INCOME' ? formatMoney(tx.amount) : ''}</td><td className="px-6 py-4 text-right font-bold text-rose-600">{tx.type === 'EXPENSE' ? formatMoney(tx.amount) : ''}</td>
+                        <table className="w-full text-left text-sm whitespace-nowrap">
+                          <thead className="bg-slate-50 text-slate-600 border-b border-slate-200">
+                            <tr>
+                              <th className="px-6 py-4 font-semibold">วัน/เวลา</th>
+                              <th className="px-6 py-4 font-semibold">เลขที่เอกสาร (Ref.)</th>
+                              <th className="px-6 py-4 font-semibold">คำอธิบายรายการ</th>
+                              <th className="px-6 py-4 font-semibold">หมวดหมู่</th>
+                              <th className="px-6 py-4 font-semibold text-right text-emerald-700">รายรับ (IN)</th>
+                              <th className="px-6 py-4 font-semibold text-right text-rose-700">รายจ่าย (OUT)</th>
+                              <th className="px-6 py-4 font-semibold text-center">จัดการ</th>
                             </tr>
-                          ))}</tbody>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {transactions.map(tx => (
+                              <tr key={tx.id} className="hover:bg-slate-50 transition-colors">
+                                <td className="px-6 py-4 text-slate-500">{tx.date}</td>
+                                <td className="px-6 py-4 font-mono text-xs text-blue-600 bg-blue-50/50 rounded">{tx.id}</td>
+                                <td className="px-6 py-4 font-medium text-slate-800">
+                                  <div className="flex items-center gap-2">
+                                    <span className="truncate max-w-[200px] sm:max-w-xs">{tx.title}</span>
+                                    {tx.detailsUrl && tx.detailsUrl.startsWith('data:image') ? (
+                                      <button onClick={() => setPreviewImage(tx.detailsUrl)} title="ดูรูปภาพใบเสร็จ" className="text-blue-500 hover:text-blue-700 bg-blue-50 p-1.5 rounded-md flex items-center gap-1 transition">
+                                        <ImageIcon className="w-4 h-4" />
+                                      </button>
+                                    ) : tx.detailsUrl && (
+                                      <a href={tx.detailsUrl} target="_blank" rel="noreferrer" title="ดูเอกสารแนบ" className="text-blue-500 hover:text-blue-700 bg-blue-50 p-1.5 rounded-md transition">
+                                        <ExternalLink className="w-4 h-4" />
+                                      </a>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4"><span className="px-3 py-1.5 bg-slate-100 text-slate-600 rounded-md text-xs font-medium">{tx.category}</span></td>
+                                <td className="px-6 py-4 text-right font-bold text-emerald-600">{tx.type === 'INCOME' ? formatMoney(tx.amount) : ''}</td>
+                                <td className="px-6 py-4 text-right font-bold text-rose-600">{tx.type === 'EXPENSE' ? formatMoney(tx.amount) : ''}</td>
+                                <td className="px-6 py-4 text-center">
+                                  {/* นำปุ่มลบกลับมาใส่ในสมุดบัญชีแล้ว */}
+                                  <button onClick={() => handleDeleteTransaction(tx.id)} className="text-slate-400 hover:text-rose-600 bg-slate-100 hover:bg-rose-100 p-1.5 rounded transition" title="ลบรายการบัญชีนี้"><Trash2 className="w-4 h-4" /></button>
+                                </td>
+                              </tr>
+                            ))}
+                            {transactions.length === 0 && <tr><td colSpan="7" className="px-6 py-8 text-center text-slate-500">ไม่มีประวัติการทำรายการ</td></tr>}
+                          </tbody>
+                          <tfoot className="bg-slate-800 text-white">
+                            <tr>
+                              <td colSpan="4" className="px-6 py-5 text-right font-bold text-lg">รวมยอดสะสมทั้งหมด (Total)</td>
+                              <td className="px-6 py-5 text-right font-bold text-lg text-emerald-400">{formatMoney(totalIncome)}</td>
+                              <td className="px-6 py-5 text-right font-bold text-lg text-rose-400">{formatMoney(totalExpense)}</td>
+                              <td></td>
+                            </tr>
+                          </tfoot>
                         </table>
                       </div>
                     </div>
                   </div>
                 )}
 
+                {/* --- Admin Settings View --- */}
                 {activeTab === 'admin' && (
                   <div className="space-y-6 animate-in fade-in">
-                    <h2 className="text-2xl font-bold text-slate-800 mb-6">ตั้งค่าระบบ (Admin)</h2>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                      <div className="md:col-span-2 bg-white p-6 rounded-2xl shadow-sm border"><h3 className="font-bold mb-4">ตั้งค่าทั่วไป</h3>
-                        <form onSubmit={handleSaveGeneralSettings} className="space-y-4 max-w-2xl"><label className="block text-sm">ชื่อระบบ / ชื่อวัด</label><input type="text" value={generalSettings.templeName} onChange={e => setGeneralSettings({...generalSettings, templeName: e.target.value})} className="w-full px-4 py-2 border rounded-lg"/><button type="submit" className="bg-blue-600 text-white px-6 py-2.5 rounded-lg font-bold">บันทึกตั้งค่า</button></form>
+                    <div className="flex items-center gap-3 mb-6">
+                      <div className="bg-slate-800 p-3 rounded-xl"><ShieldCheck className="w-6 h-6 text-white" /></div>
+                      <div>
+                        <h2 className="text-2xl font-bold text-slate-800">ตั้งค่าระบบ (Admin Panel)</h2>
+                        <p className="text-slate-500 text-sm">จัดการข้อมูลวัด หมวดหมู่ และการตั้งค่าขั้นสูง</p>
                       </div>
-                      <div className="bg-white p-6 rounded-2xl border border-emerald-100"><h3 className="font-bold mb-4">หมวดหมู่รายรับ</h3><form onSubmit={(e) => handleAddCategory('income', e)} className="flex gap-2 mb-4"><input type="text" value={newIncomeCat} onChange={e => setNewIncomeCat(e.target.value)} className="flex-1 px-3 py-2 border rounded-lg" placeholder="เพิ่ม..."/><button className="bg-emerald-600 text-white px-4 rounded-lg"><Plus className="w-4 h-4"/></button></form><div className="space-y-2">{incomeCategories.map(cat => <div key={cat} className="flex justify-between bg-slate-50 px-4 py-2 border rounded-lg text-sm"><span>{cat}</span><button onClick={() => handleDeleteCategory('income', cat)} className="text-slate-400 hover:text-rose-500"><Trash2 className="w-4 h-4"/></button></div>)}</div></div>
-                      <div className="bg-white p-6 rounded-2xl border border-rose-100"><h3 className="font-bold mb-4">หมวดหมู่รายจ่าย</h3><form onSubmit={(e) => handleAddCategory('expense', e)} className="flex gap-2 mb-4"><input type="text" value={newExpenseCat} onChange={e => setNewExpenseCat(e.target.value)} className="flex-1 px-3 py-2 border rounded-lg" placeholder="เพิ่ม..."/><button className="bg-rose-600 text-white px-4 rounded-lg"><Plus className="w-4 h-4"/></button></form><div className="space-y-2">{expenseCategories.map(cat => <div key={cat} className="flex justify-between bg-slate-50 px-4 py-2 border rounded-lg text-sm"><span>{cat}</span><button onClick={() => handleDeleteCategory('expense', cat)} className="text-slate-400 hover:text-rose-500"><Trash2 className="w-4 h-4"/></button></div>)}</div></div>
-                      <div className="md:col-span-2 bg-rose-50 p-6 rounded-2xl border border-rose-200"><h3 className="font-bold text-rose-800 mb-2">ล้างฐานข้อมูล (Reset)</h3><button onClick={async () => { if(window.confirm('ลบข้อมูลทั้งหมด?')) { for (const i of inventory) await deleteDoc(doc(db, 'artifacts', erpAppId, 'public', 'data', 'inventory', i.id)); for (const t of transactions) await deleteDoc(doc(db, 'artifacts', erpAppId, 'public', 'data', 'transactions', t.id)); showToast('ล้างข้อมูลเรียบร้อย'); } }} className="bg-rose-600 text-white px-6 py-2 rounded-lg font-bold">ล้างข้อมูลทั้งหมด</button></div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      
+                      {/* ตั้งค่าทั่วไป */}
+                      <div className="md:col-span-2 bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-slate-200">
+                        <h3 className="font-bold text-lg mb-6 flex items-center gap-2 border-b pb-3"><Building2 className="w-5 h-5 text-blue-500"/> ตั้งค่าทั่วไป (General Settings)</h3>
+                        <form onSubmit={handleSaveGeneralSettings} className="space-y-4 max-w-2xl">
+                          <div>
+                            <label className="block text-sm font-semibold mb-2">ชื่อระบบ / ชื่อวัด (ใช้แสดงบนหัวกระดาษรายงาน)</label>
+                            <input type="text" value={generalSettings.templeName} onChange={e => setGeneralSettings({...generalSettings, templeName: e.target.value})} className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"/>
+                          </div>
+                          <button type="submit" className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-blue-700 transition flex items-center gap-2"><Save className="w-5 h-5"/> บันทึกตั้งค่าระบบ</button>
+                        </form>
+                      </div>
+
+                      {/* หมวดหมู่รายรับ */}
+                      <div className="bg-white p-6 rounded-2xl shadow-sm border border-emerald-100">
+                        <h3 className="font-bold text-lg mb-6 flex items-center gap-2 border-b pb-3 text-emerald-800"><TrendingUp className="w-5 h-5 text-emerald-500"/> หมวดหมู่รายรับ</h3>
+                        <form onSubmit={(e) => handleAddCategory('income', e)} className="flex gap-2 mb-6">
+                          <input type="text" value={newIncomeCat} onChange={e => setNewIncomeCat(e.target.value)} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500" placeholder="เพิ่มหมวดหมู่ใหม่..."/>
+                          <button type="submit" className="bg-emerald-600 text-white px-5 py-2.5 rounded-lg hover:bg-emerald-700 font-bold"><Plus className="w-5 h-5"/></button>
+                        </form>
+                        <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
+                          {incomeCategories.map(cat => (
+                            <div key={cat} className="flex justify-between items-center bg-slate-50 px-4 py-3 border border-slate-100 rounded-lg text-sm font-medium text-slate-700">
+                              <span>{cat}</span><button onClick={() => handleDeleteCategory('income', cat)} className="text-slate-400 hover:text-rose-500 bg-white p-1.5 rounded shadow-sm"><Trash2 className="w-4 h-4"/></button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* หมวดหมู่รายจ่าย */}
+                      <div className="bg-white p-6 rounded-2xl shadow-sm border border-rose-100">
+                        <h3 className="font-bold text-lg mb-6 flex items-center gap-2 border-b pb-3 text-rose-800"><TrendingDown className="w-5 h-5 text-rose-500"/> หมวดหมู่รายจ่าย</h3>
+                        <form onSubmit={(e) => handleAddCategory('expense', e)} className="flex gap-2 mb-6">
+                          <input type="text" value={newExpenseCat} onChange={e => setNewExpenseCat(e.target.value)} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-rose-500" placeholder="เพิ่มหมวดหมู่ใหม่..."/>
+                          <button type="submit" className="bg-rose-600 text-white px-5 py-2.5 rounded-lg hover:bg-rose-700 font-bold"><Plus className="w-5 h-5"/></button>
+                        </form>
+                        <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
+                          {expenseCategories.map(cat => (
+                            <div key={cat} className="flex justify-between items-center bg-slate-50 px-4 py-3 border border-slate-100 rounded-lg text-sm font-medium text-slate-700">
+                              <span>{cat}</span><button onClick={() => handleDeleteCategory('expense', cat)} className="text-slate-400 hover:text-rose-500 bg-white p-1.5 rounded shadow-sm"><Trash2 className="w-4 h-4"/></button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* โซนอันตราย */}
+                      <div className="md:col-span-2 bg-rose-50 p-6 md:p-8 rounded-2xl border border-rose-200 mt-4">
+                        <h3 className="font-bold text-rose-800 text-xl mb-3 flex items-center gap-2"><AlertCircle className="w-6 h-6"/> ล้างฐานข้อมูลทั้งหมด (Reset Database)</h3>
+                        <p className="text-rose-600 mb-6 font-medium">คำเตือน: การกระทำนี้จะลบรายการบัญชี (สมุดรายวัน) และ คลังสินค้าทั้งหมด ออกจากฐานข้อมูล ไม่สามารถกู้คืนได้</p>
+                        <button 
+                          onClick={async () => { 
+                            if(window.confirm('คุณแน่ใจหรือไม่ว่าต้องการ "ล้างข้อมูลทั้งหมด" ในฐานข้อมูล Firebase? (การกระทำนี้ไม่สามารถย้อนกลับได้)')) { 
+                              for (const i of inventory) await deleteDoc(doc(db, 'artifacts', erpAppId, 'public', 'data', 'inventory', i.id)); 
+                              for (const t of transactions) await deleteDoc(doc(db, 'artifacts', erpAppId, 'public', 'data', 'transactions', t.id)); 
+                              showToast('ล้างข้อมูลในฐานข้อมูลเรียบร้อยแล้ว'); 
+                            } 
+                          }} 
+                          className="bg-rose-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-rose-700 transition shadow-md"
+                        >
+                          ลบข้อมูลระบบทั้งหมด
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
 
+                {/* --- Daily Report View --- */}
                 {activeTab === 'dailyReport' && (
                   <div className="space-y-6 animate-in fade-in print:p-0">
                     <div className="print:hidden">
-                      <div className="flex justify-between items-center mb-6">
-                        <h2 className="text-2xl font-bold text-slate-800">รายงานการรับ-จ่าย ประจำวัน</h2>
-                        <div className="flex gap-3"><input type="date" value={reportDate} onChange={(e) => setReportDate(e.target.value)} className="px-4 py-2 border rounded-lg"/><button onClick={() => setShowPrintPreview(true)} className="bg-slate-800 text-white px-4 py-2 rounded-lg flex items-center gap-2"><FileText className="w-4 h-4"/> พรีวิว</button></div>
+                      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+                        <div className="flex items-center gap-3">
+                          <div className="bg-blue-100 p-3 rounded-xl"><FileSpreadsheet className="w-6 h-6 text-blue-600" /></div>
+                          <div>
+                            <h2 className="text-2xl font-bold text-slate-800">รายงานการรับ-จ่าย ประจำวัน</h2>
+                            <p className="text-slate-500 text-sm">เลือกวันที่และกด "ดูตัวอย่างก่อนพิมพ์" เพื่อสั่งพิมพ์</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3 w-full md:w-auto">
+                          <input type="date" value={reportDate} onChange={(e) => setReportDate(e.target.value)} className="px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-slate-700 font-medium"/>
+                          <button onClick={() => setShowPrintPreview(true)} className="bg-slate-800 text-white px-6 py-2.5 rounded-lg flex items-center gap-2 hover:bg-slate-700 transition font-bold shadow-sm"><FileText className="w-4 h-4"/> ดูตัวอย่างก่อนพิมพ์</button>
+                        </div>
                       </div>
                     </div>
+
                     {showPrintPreview && (
-                      <div className="fixed inset-0 z-[100] bg-slate-500/90 flex flex-col print:static print:bg-white print:block">
-                        <div className="bg-slate-900 p-4 flex justify-between print:hidden"><button onClick={() => setShowPrintPreview(false)} className="text-white bg-slate-800 px-4 py-2 rounded-lg">ปิดหน้าต่าง</button><button onClick={() => window.print()} className="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold">สั่งพิมพ์ (Print)</button></div>
-                        <div className="flex-1 overflow-auto p-8 print:p-0">
+                      <div className="fixed inset-0 z-[100] bg-slate-500/90 flex flex-col print:static print:bg-white print:block backdrop-blur-sm">
+                        <div className="bg-slate-900 p-4 flex justify-between items-center print:hidden shadow-lg shrink-0">
+                          <div className="flex items-center gap-3 text-white">
+                            <button onClick={() => setShowPrintPreview(false)} className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg transition" title="ปิดหน้าต่าง"><X className="w-5 h-5"/></button>
+                            <span className="font-bold">ตัวอย่างก่อนพิมพ์ (Print Preview)</span>
+                          </div>
+                          <button onClick={() => window.print()} className="bg-blue-600 text-white px-8 py-2.5 rounded-lg font-bold flex items-center gap-2 hover:bg-blue-700 transition shadow-md"><Printer className="w-5 h-5"/> สั่งพิมพ์ (Print)</button>
+                        </div>
+                        
+                        <div className="flex-1 overflow-auto p-4 md:p-8 print:p-0">
                           <div className="bg-white w-full max-w-[21cm] min-h-[29.7cm] mx-auto p-12 shadow-2xl print:shadow-none print:p-0">
-                            <div className="text-center mb-8 border-b-2 border-slate-800 pb-6"><h1 className="text-2xl font-bold mb-2">รายงานสรุปรับ-จ่าย ประจำวัน</h1><h2 className="text-xl font-bold mb-2">{generalSettings.templeName}</h2><p className="text-lg">ประจำวันที่ {new Date(reportDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}</p></div>
-                            {/* แสดงรายการ (ย่อโค้ดเพื่อความกระชับของการแสดงผลในหน้าเดียว) */}
-                            <table className="w-full text-left text-sm mb-8"><thead className="bg-slate-100"><tr><th className="py-2 px-3">เวลา</th><th className="py-2 px-3">หมวดหมู่</th><th className="py-2 px-3">รายการรับ</th><th className="py-2 px-3 text-right">จำนวนเงิน</th></tr></thead><tbody>{transactions.filter(t => t.date.startsWith(reportDate) && t.type === 'INCOME').map(tx => <tr key={tx.id}><td className="py-2 px-3">{tx.date.split(' ')[1]}</td><td className="py-2 px-3">{tx.category}</td><td className="py-2 px-3">{tx.title}</td><td className="py-2 px-3 text-right">{formatMoney(tx.amount)}</td></tr>)}<tr className="font-bold border-t-2"><td colSpan="3" className="py-3 px-3 text-right">รวมรับ:</td><td className="py-3 px-3 text-right text-emerald-700">{formatMoney(transactions.filter(t => t.date.startsWith(reportDate) && t.type === 'INCOME').reduce((a,c)=>a+c.amount,0))}</td></tr></tbody></table>
-                            <table className="w-full text-left text-sm"><thead className="bg-slate-100"><tr><th className="py-2 px-3">เวลา</th><th className="py-2 px-3">หมวดหมู่</th><th className="py-2 px-3">รายการจ่าย</th><th className="py-2 px-3 text-right">จำนวนเงิน</th></tr></thead><tbody>{transactions.filter(t => t.date.startsWith(reportDate) && t.type === 'EXPENSE').map(tx => <tr key={tx.id}><td className="py-2 px-3">{tx.date.split(' ')[1]}</td><td className="py-2 px-3">{tx.category}</td><td className="py-2 px-3">{tx.title}</td><td className="py-2 px-3 text-right">{formatMoney(tx.amount)}</td></tr>)}<tr className="font-bold border-t-2"><td colSpan="3" className="py-3 px-3 text-right">รวมจ่าย:</td><td className="py-3 px-3 text-right text-rose-700">{formatMoney(transactions.filter(t => t.date.startsWith(reportDate) && t.type === 'EXPENSE').reduce((a,c)=>a+c.amount,0))}</td></tr></tbody></table>
-                            <div className="mt-16 flex justify-between px-10"><div className="text-center"><p>ลงชื่อ.........................................ผู้รายงาน</p></div><div className="text-center"><p>ลงชื่อ.........................................ผู้ตรวจ</p></div></div>
+                            
+                            <div className="text-center mb-8 border-b-2 border-slate-800 pb-6">
+                              <h1 className="text-2xl font-bold mb-2">รายงานสรุปรับ-จ่าย ประจำวัน</h1>
+                              <h2 className="text-xl font-bold mb-2">{generalSettings.templeName}</h2>
+                              <p className="text-lg">ประจำวันที่ {new Date(reportDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                            </div>
+                            
+                            <div className="grid grid-cols-1 gap-10">
+                              {/* Income Table */}
+                              <div>
+                                <h3 className="text-lg font-bold text-slate-800 mb-3 flex items-center gap-2"><TrendingUp className="w-5 h-5 text-emerald-600 print:text-black"/> รายละเอียดรายรับ (Income)</h3>
+                                <table className="w-full text-left text-sm border-collapse">
+                                  <thead className="bg-slate-100 print:bg-slate-50 border-y border-slate-300">
+                                    <tr><th className="py-2.5 px-3 font-bold w-24">เวลา</th><th className="py-2.5 px-3 font-bold w-32">หมวดหมู่</th><th className="py-2.5 px-3 font-bold">รายการ</th><th className="py-2.5 px-3 font-bold text-right w-32">จำนวนเงิน</th></tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-200">
+                                    {transactions.filter(t => t.date.startsWith(reportDate) && t.type === 'INCOME').length === 0 ? (
+                                      <tr><td colSpan="4" className="py-4 text-center text-slate-500 italic">ไม่มีรายการรับในวันนี้</td></tr>
+                                    ) : (
+                                      transactions.filter(t => t.date.startsWith(reportDate) && t.type === 'INCOME').map(tx => (
+                                        <tr key={tx.id}>
+                                          <td className="py-2 px-3 text-slate-600">{tx.date.split(' ')[1]}</td>
+                                          <td className="py-2 px-3"><span className="text-xs bg-slate-100 px-2 py-1 rounded print:border border-slate-300">{tx.category}</span></td>
+                                          <td className="py-2 px-3">{tx.title}</td>
+                                          <td className="py-2 px-3 text-right font-medium">{formatMoney(tx.amount)}</td>
+                                        </tr>
+                                      ))
+                                    )}
+                                    <tr className="bg-emerald-50/50 print:bg-transparent font-bold border-t-2 border-slate-300">
+                                      <td colSpan="3" className="py-4 px-3 text-right text-base">รวมรายรับทั้งสิ้น</td>
+                                      <td className="py-4 px-3 text-right text-base text-emerald-700 print:text-black underline decoration-double">{formatMoney(transactions.filter(t => t.date.startsWith(reportDate) && t.type === 'INCOME').reduce((a,c)=>a+c.amount,0))}</td>
+                                    </tr>
+                                  </tbody>
+                                </table>
+                              </div>
+
+                              {/* Expense Table */}
+                              <div>
+                                <h3 className="text-lg font-bold text-slate-800 mb-3 flex items-center gap-2"><TrendingDown className="w-5 h-5 text-rose-600 print:text-black"/> รายละเอียดรายจ่าย (Expenses)</h3>
+                                <table className="w-full text-left text-sm border-collapse">
+                                  <thead className="bg-slate-100 print:bg-slate-50 border-y border-slate-300">
+                                    <tr><th className="py-2.5 px-3 font-bold w-24">เวลา</th><th className="py-2.5 px-3 font-bold w-32">หมวดหมู่</th><th className="py-2.5 px-3 font-bold">รายการ</th><th className="py-2.5 px-3 font-bold text-right w-32">จำนวนเงิน</th></tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-200">
+                                    {transactions.filter(t => t.date.startsWith(reportDate) && t.type === 'EXPENSE').length === 0 ? (
+                                      <tr><td colSpan="4" className="py-4 text-center text-slate-500 italic">ไม่มีรายการจ่ายในวันนี้</td></tr>
+                                    ) : (
+                                      transactions.filter(t => t.date.startsWith(reportDate) && t.type === 'EXPENSE').map(tx => (
+                                        <tr key={tx.id}>
+                                          <td className="py-2 px-3 text-slate-600">{tx.date.split(' ')[1]}</td>
+                                          <td className="py-2 px-3"><span className="text-xs bg-slate-100 px-2 py-1 rounded print:border border-slate-300">{tx.category}</span></td>
+                                          <td className="py-2 px-3">{tx.title}</td>
+                                          <td className="py-2 px-3 text-right font-medium">{formatMoney(tx.amount)}</td>
+                                        </tr>
+                                      ))
+                                    )}
+                                    <tr className="bg-rose-50/50 print:bg-transparent font-bold border-t-2 border-slate-300">
+                                      <td colSpan="3" className="py-4 px-3 text-right text-base">รวมรายจ่ายทั้งสิ้น</td>
+                                      <td className="py-4 px-3 text-right text-base text-rose-700 print:text-black underline decoration-double">{formatMoney(transactions.filter(t => t.date.startsWith(reportDate) && t.type === 'EXPENSE').reduce((a,c)=>a+c.amount,0))}</td>
+                                    </tr>
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+
+                            <div className="mt-20 pt-10 flex justify-between px-12 print:flex print:justify-between text-base">
+                              <div className="text-center">
+                                <p className="mb-8">ลงชื่อ.......................................................ผู้รายงาน</p>
+                                <p>( ....................................................... )</p>
+                              </div>
+                              <div className="text-center">
+                                <p className="mb-8">ลงชื่อ.......................................................ผู้ตรวจ/อนุมัติ</p>
+                                <p>( ....................................................... )</p>
+                              </div>
+                            </div>
+
                           </div>
                         </div>
                       </div>
@@ -702,34 +1091,75 @@
             </main>
           </div>
 
-          {/* Edit Modal */}
+          {/* --- Modals --- */}
+          {/* Edit Inventory Modal */}
           {editingItem && (
-            <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-2xl w-full max-w-md p-6"><h3 className="font-bold mb-4">แก้ไขรายการ: {editingItem.name}</h3><form onSubmit={handleSaveEdit} className="space-y-4"><input required type="text" value={editForm.name} onChange={e=>setEditForm({...editForm, name: e.target.value})} className="w-full px-3 py-2 border rounded-lg" placeholder="ชื่อรายการ"/><input required type="number" value={editForm.price} onChange={e=>setEditForm({...editForm, price: e.target.value})} className="w-full px-3 py-2 border rounded-lg" placeholder="ราคา"/><div className="border-t pt-4"><label className="block text-sm font-semibold mb-2">ปรับปรุงสต๊อก</label><div className="flex gap-4 mb-4"><label><input type="radio" checked={editForm.stockAdjustType === 'none'} onChange={() => setEditForm({...editForm, stockAdjustType: 'none'})} /> ไม่ปรับ</label><label><input type="radio" checked={editForm.stockAdjustType === 'add'} onChange={() => setEditForm({...editForm, stockAdjustType: 'add'})} /> เติม (+)</label><label><input type="radio" checked={editForm.stockAdjustType === 'reduce'} onChange={() => setEditForm({...editForm, stockAdjustType: 'reduce'})} /> หัก (-)</label></div>{editForm.stockAdjustType !== 'none' && <input required type="number" min="1" value={editForm.stockAdjustValue} onChange={e=>setEditForm({...editForm, stockAdjustValue: e.target.value})} className="w-full px-3 py-2 border rounded-lg" placeholder="จำนวน"/>}</div><div className="flex gap-3 mt-4"><button type="button" onClick={() => setEditingItem(null)} className="flex-1 border py-2 rounded-lg">ยกเลิก</button><button type="submit" className="flex-1 bg-indigo-600 text-white py-2 rounded-lg">บันทึก</button></div></form></div>
-            </div>
-          )}
-
-          {/* QR Scan Modal */}
-          {qrModalVisible && (
-            <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-50 p-4 print:hidden">
-              <div className="bg-white rounded-3xl w-full max-w-sm text-center p-8 relative">
-                <button onClick={() => {setQrModalVisible(false); setActiveTransferId(null);}} className="absolute top-4 right-4 bg-slate-100 rounded-full p-2"><X className="w-5 h-5"/></button>
-                <div className="mx-auto bg-blue-50 text-blue-600 w-16 h-16 rounded-full flex items-center justify-center mb-4"><Camera className="w-8 h-8"/></div>
-                <h3 className="font-bold text-xl mb-2">สแกนเพื่อถ่ายรูปจากมือถือ</h3>
-                <p className="text-sm text-slate-500 mb-6">เปิดกล้องมือถือสแกน QR Code นี้</p>
-                <div className="flex justify-center mb-6 bg-white p-4 rounded-xl border inline-block shadow-sm">
-                  {activeTransferId && <img src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(window.location.origin + window.location.pathname + '?transfer=' + activeTransferId)}&margin=0`} alt="QR Code" className="w-48 h-48 rounded-lg" />}
-                </div>
-                <div className="flex flex-col items-center gap-2 text-blue-600"><Loader2 className="w-6 h-6 animate-spin" /><p className="text-sm font-semibold animate-pulse">รอรับรูปภาพจากโทรศัพท์...</p></div>
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 print:hidden">
+              <div className="bg-white rounded-3xl shadow-xl w-full max-w-md p-8 relative">
+                <button onClick={() => setEditingItem(null)} className="absolute top-4 right-4 bg-slate-100 text-slate-500 hover:text-rose-500 rounded-full p-2 transition"><X className="w-5 h-5"/></button>
+                <h3 className="font-bold text-xl text-slate-800 mb-6 flex items-center gap-2"><Edit2 className="w-5 h-5 text-blue-500"/> แก้ไขรายการสินค้า</h3>
+                <form onSubmit={handleSaveEdit} className="space-y-5">
+                  <div>
+                    <label className="block text-sm font-semibold mb-1">ชื่อรายการ</label>
+                    <input required type="text" value={editForm.name} onChange={e=>setEditForm({...editForm, name: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="ชื่อรายการ"/>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold mb-1">ราคาบูชา (บาท)</label>
+                    <input required type="number" min="0" value={editForm.price} onChange={e=>setEditForm({...editForm, price: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-blue-700 font-bold" placeholder="ราคา"/>
+                  </div>
+                  <div className="border-t border-slate-200 pt-5 mt-2">
+                    <label className="block text-sm font-semibold mb-3">ปรับปรุงสต๊อก (ปัจจุบัน: {editingItem.stock} ชิ้น)</label>
+                    <div className="flex gap-4 mb-4 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                      <label className="flex items-center gap-2 text-sm font-medium cursor-pointer"><input type="radio" checked={editForm.stockAdjustType === 'none'} onChange={() => setEditForm({...editForm, stockAdjustType: 'none', stockAdjustValue: '', reason: ''})} className="w-4 h-4"/> ไม่ปรับ</label>
+                      <label className="flex items-center gap-2 text-sm font-medium text-emerald-700 cursor-pointer"><input type="radio" checked={editForm.stockAdjustType === 'add'} onChange={() => setEditForm({...editForm, stockAdjustType: 'add'})} className="w-4 h-4"/> เติม (+)</label>
+                      <label className="flex items-center gap-2 text-sm font-medium text-rose-700 cursor-pointer"><input type="radio" checked={editForm.stockAdjustType === 'reduce'} onChange={() => setEditForm({...editForm, stockAdjustType: 'reduce'})} className="w-4 h-4"/> หัก (-)</label>
+                    </div>
+                    {editForm.stockAdjustType !== 'none' && (
+                      <div className="space-y-4 animate-in slide-in-from-top-2">
+                        <div>
+                          <label className="block text-xs font-semibold mb-1">จำนวนชิ้นที่ปรับ</label>
+                          <input required type="number" min="1" value={editForm.stockAdjustValue} onChange={e=>setEditForm({...editForm, stockAdjustValue: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-center font-bold text-lg" placeholder="0"/>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold mb-1">หมายเหตุ (ถ้ามี)</label>
+                          <input type="text" value={editForm.reason} onChange={e=>setEditForm({...editForm, reason: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm" placeholder="เช่น สินค้าชำรุด"/>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex gap-3 pt-4 border-t border-slate-100">
+                    <button type="button" onClick={() => setEditingItem(null)} className="flex-1 bg-white border border-slate-300 py-3 rounded-xl font-bold text-slate-600 hover:bg-slate-50 transition">ยกเลิก</button>
+                    <button type="submit" className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition flex items-center justify-center gap-2"><Save className="w-5 h-5"/> บันทึก</button>
+                  </div>
+                </form>
               </div>
             </div>
           )}
 
-          {/* Full Image Preview */}
+          {/* QR Scan Camera Modal */}
+          {qrModalVisible && (
+            <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 print:hidden">
+              <div className="bg-white rounded-3xl w-full max-w-sm text-center p-8 relative shadow-2xl">
+                <button onClick={() => {setQrModalVisible(false); setActiveTransferId(null);}} className="absolute top-4 right-4 bg-slate-100 hover:bg-rose-100 hover:text-rose-600 rounded-full p-2 transition"><X className="w-5 h-5"/></button>
+                <div className="mx-auto bg-blue-50 text-blue-600 w-20 h-20 rounded-full flex items-center justify-center mb-6"><Camera className="w-10 h-10"/></div>
+                <h3 className="font-bold text-2xl mb-2">สแกนเพื่อถ่ายรูปจากมือถือ</h3>
+                <p className="text-sm text-slate-500 mb-8">เปิดกล้องมือถือสแกน QR Code นี้</p>
+                <div className="flex justify-center mb-8 bg-white p-4 rounded-xl border-2 border-dashed border-blue-200 inline-block mx-auto">
+                  {activeTransferId && <img src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(window.location.origin + window.location.pathname + '?transfer=' + activeTransferId)}&margin=0`} alt="QR Code" className="w-56 h-56 rounded-lg" />}
+                </div>
+                <div className="flex flex-col items-center gap-3 text-blue-600 bg-blue-50 py-4 rounded-xl">
+                  <Loader2 className="w-6 h-6 animate-spin" />
+                  <p className="text-sm font-bold animate-pulse">กำลังรอรับรูปภาพจากโทรศัพท์...</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Full Image Preview Modal */}
           {previewImage && (
-            <div className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center p-4" onClick={() => setPreviewImage(null)}>
-              <button onClick={() => setPreviewImage(null)} className="absolute top-6 right-6 text-white bg-white/10 rounded-full p-2"><X className="w-8 h-8"/></button>
-              <img src={previewImage} alt="Evidence" className="max-w-full max-h-full object-contain rounded-lg" onClick={e => e.stopPropagation()} />
+            <div className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-sm flex items-center justify-center p-4 print:hidden" onClick={() => setPreviewImage(null)}>
+              <button onClick={() => setPreviewImage(null)} className="absolute top-6 right-6 text-white hover:text-rose-400 bg-white/20 hover:bg-white/30 rounded-full p-3 transition"><X className="w-8 h-8"/></button>
+              <img src={previewImage} alt="Evidence" className="max-w-full max-h-full object-contain rounded-xl shadow-2xl" onClick={e => e.stopPropagation()} />
             </div>
           )}
 
