@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ระบบบัญชีวัดไชยามาตย์ (ERP)</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Google Fonts: Sarabun -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <style>
+    body { font-family: 'Sarabun', sans-serif; background-color: #f8fafc; }
+    /* Hide scrollbar for print */
+    @media print {
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+  </style>
+
+  <!-- ES Modules Setup for React, Lucide, and Firebase -->
+  <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.2.0",
+        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+        "lucide-react": "https://esm.sh/lucide-react@0.344.0",
+        "firebase/app": "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js",
+        "firebase/auth": "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js",
+        "firebase/firestore": "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js"
+      }
+    }
+  </script>
+  
+  <!-- Babel for in-browser JSX compilation -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel" data-type="module">
+    import React, { useState, useEffect } from 'react';
+    import { createRoot } from 'react-dom/client';
+    import { 
+      LayoutDashboard, BookOpen, HandHeart, PackageSearch, Receipt, Plus, Trash2, Save,
+      TrendingUp, TrendingDown, Building2, Landmark, Wallet, AlertCircle, FileText,
+      Printer, ExternalLink, CalendarDays, FileSpreadsheet, Edit2, X, QrCode, ShieldCheck,
+      Camera, CheckCircle2, Image as ImageIcon, Loader2
+    } from 'lucide-react';
+    
+    import { initializeApp } from 'firebase/app';
+    import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+    import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
+
+    // นำการตั้งค่า Firebase ของคุณมาใช้งาน
+    const firebaseConfig = {
+      apiKey: "AIzaSyCtASob0ZkTZviog2JxKkfrfouGDorXBGg",
+      authDomain: "financial-system-c79c8.firebaseapp.com",
+      projectId: "financial-system-c79c8",
+      storageBucket: "financial-system-c79c8.firebasestorage.app",
+      messagingSenderId: "744133807245",
+      appId: "1:744133807245:web:19c3f76a08629803b0e6c4",
+      measurementId: "G-8WXDRJN3GK"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    
+    // กำหนด App ID กลางสำหรับระบบแชร์ข้อมูล (Public Data)
+    const erpAppId = 'temple-erp';
+
+    // ฟังก์ชันบีบอัดรูปภาพเพื่อบันทึกเป็น Base64
+    const compressImage = (file) => {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (event) => {
+          const img = new Image();
+          img.src = event.target.result;
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const MAX_WIDTH = 1000;
+            let width = img.width;
+            let height = img.height;
+
+            if (width > MAX_WIDTH) {
+              height = Math.round((height * MAX_WIDTH) / width);
+              width = MAX_WIDTH;
+            }
+
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+            resolve(canvas.toDataURL('image/jpeg', 0.6));
+          };
+          img.onerror = (e) => reject(e);
+        };
+        reader.onerror = (e) => reject(e);
+      });
+    };
+
+    // --- คอมโพเนนต์สำหรับหน้าจอมือถือเวลาสแกน QR ---
+    const MobileUploadView = ({ transferId }) => {
+      const [status, setStatus] = useState('idle');
+      const [mobileUser, setMobileUser] = useState(null);
+
+      useEffect(() => {
+        signInAnonymously(auth).then(res => setMobileUser(res.user)).catch(console.error);
+      }, []);
+
+      const handleFileChange = async (e) => {
+        const file = e.target.files[0];
+        if (!file || !mobileUser) return;
+
+        setStatus('uploading');
+        try {
+          const base64Data = await compressImage(file);
+          // บันทึกรูปภาพลง Path สำหรับแลกเปลี่ยนข้อมูล
+          await setDoc(doc(db, 'artifacts', erpAppId, 'public', 'data', 'transfers', transferId), {
+            imageData: base64Data,
+            timestamp: Date.now()
+          });
+          setStatus('success');
+        } catch(err) {
+          console.error(err);
+          setStatus('error');
+        }
+      };
+
+      return (
+        <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6 text-white">
+          <div className="bg-slate-800 p-8 rounded-3xl w-full max-w-sm text-center shadow-2xl border border-slate-700">
+            <Landmark className="w-12 h-12 text-amber-500 mx-auto mb-4" />
+            <h1 className="text-2xl font-bold mb-2">อัปโหลดหลักฐาน</h1>
+            <p className="text-slate-400 mb-8 text-sm">ถ่ายรูปใบเสร็จเพื่อส่งไปยังหน้าจอคอมพิวเตอร์ของคุณ</p>
+
+            {status === 'idle' && (
+              <label className="bg-blue-600 hover:bg-blue-700 transition flex flex-col items-center justify-center gap-3 py-6 rounded-2xl cursor-pointer text-white font-bold shadow-lg">
+                <Camera className="w-10 h-10" />
+                <span>เปิดกล้อง / เลือกรูปภาพ</span>
+                <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFileChange} />
+              </label>
+            )}
+
+            {status === 'uploading' && (
+              <div className="flex flex-col items-center py-6 text-blue-400">
+                <Loader2 className="w-12 h-12 animate-spin mb-4" />
+                <span className="font-bold animate-pulse">กำลังประมวลผลและส่งภาพ...</span>
+              </div>
+            )}
+
+            {status === 'success' && (
+              <div className="flex flex-col items-center py-6 text-emerald-400 animate-in zoom-in">
+                <CheckCircle2 className="w-16 h-16 mb-4" />
+                <span className="font-bold text-xl mb-2">ส่งรูปภาพสำเร็จ!</span>
+                <span className="text-sm text-slate-400">รูปภาพไปปรากฏบนจอคอมพิวเตอร์แล้ว<br/>คุณสามารถปิดหน้านี้ได้เลย</span>
+              </div>
+            )}
+
+            {status === 'error' && (
+              <div className="flex flex-col items-center py-6 text-rose-400">
+                <AlertCircle className="w-12 h-12 mb-4" />
+                <span className="font-bold">เกิดข้อผิดพลาดในการส่งรูป</span>
+                <button onClick={() => setStatus('idle')} className="mt-4 px-6 py-2 bg-slate-700 rounded-lg text-white text-sm">ลองใหม่อีกครั้ง</button>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    };
+
+
+    // --- คอมโพเนนต์หลักของแอปพลิเคชัน ---
+    function App() {
+      // ตรวจสอบพารามิเตอร์ว่าเป็นการสแกน QR มาจากมือถือหรือไม่
+      const urlParams = new URLSearchParams(window.location.search);
+      const transferIdParam = urlParams.get('transfer');
+
+      if (transferIdParam) {
+        return <MobileUploadView transferId={transferIdParam} />;
+      }
+
+      const [activeTab, setActiveTab] = useState('dashboard');
+      const [notifications, setNotifications] = useState('');
+      const [showPrintPreview, setShowPrintPreview] = useState(false);
+      const [previewImage, setPreviewImage] = useState(null);
+
+      const getTodayString = () => {
+        const tzoffset = (new Date()).getTimezoneOffset() * 60000;
+        return (new Date(Date.now() - tzoffset)).toISOString().split('T')[0];
+      };
+
+      const [reportDate, setReportDate] = useState(getTodayString());
+      const [user, setUser] = useState(null);
+      const [loading, setLoading] = useState(true);
+
+      const [inventory, setInventory] = useState([]);
+      const [transactions, setTransactions] = useState([]);
+      const [incomeCategories, setIncomeCategories] = useState([]);
+      const [expenseCategories, setExpenseCategories] = useState([]);
+      const [generalSettings, setGeneralSettings] = useState({
+        templeName: 'วัดไชยามาตย์ จังหวัดแพร่',
+      });
+
+      // Firebase Auth
+      useEffect(() => {
+        signInAnonymously(auth).catch(console.error);
+        const unsubscribe = onAuthStateChanged(auth, setUser);
+        return () => unsubscribe();
+      }, []);
+
+      // Firebase Data Fetching (Shared Database for Temple)
+      useEffect(() => {
+        if (!user) return;
+
+        setLoading(true);
+
+        const inventoryRef = collection(db, 'artifacts', erpAppId, 'public', 'data', 'inventory');
+        const unsubInventory = onSnapshot(inventoryRef, (snapshot) => {
+          const items = [];
+          snapshot.forEach(doc => items.push({ id: doc.id, ...doc.data() }));
+          setInventory(items);
+        }, console.error);
+
+        const transactionsRef = collection(db, 'artifacts', erpAppId, 'public', 'data', 'transactions');
+        const unsubTransactions = onSnapshot(transactionsRef, (snapshot) => {
+          const txs = [];
+          snapshot.forEach(doc => txs.push({ id: doc.id, ...doc.data() }));
+          txs.sort((a, b) => new Date(b.date) - new Date(a.date));
+          setTransactions(txs);
+          setLoading(false);
+        }, console.error);
+
+        const settingsRef = collection(db, 'artifacts', erpAppId, 'public', 'data', 'settings');
+        const unsubSettings = onSnapshot(settingsRef, (snapshot) => {
+          let foundCats = false;
+          let foundGeneral = false;
+          snapshot.forEach(docSnap => {
+            if (docSnap.id === 'categories') {
+              foundCats = true;
+              const data = docSnap.data();
+              if (data.income) setIncomeCategories(data.income);
+              if (data.expense) setExpenseCategories(data.expense);
+            }
+            if (docSnap.id === 'general') {
+              foundGeneral = true;
+              const data = docSnap.data();
+              setGeneralSettings(prev => ({ ...prev, ...data }));
+            }
+          });
+
+          // สร้างค่าตั้งต้นหากไม่มีข้อมูล
+          if (!foundCats) {
+            setDoc(doc(db, 'artifacts', erpAppId, 'public', 'data', 'settings', 'categories'), {
+              income: ['บำรุงทั่วไป', 'กองทุนการศึกษา', 'สร้างถาวรวัตถุ', 'โรงทาน/ช่วยเหลือ'],
+              expense: ['ค่าใช้จ่ายสำนักงาน', 'ค่าสาธารณูปโภค', 'ค่าจ้าง/ค่าตอบแทน', 'ค่าบำรุงรักษา', 'จัดงาน/พิธีกรรม']
+            });
+          }
+          if (!foundGeneral) {
+            setDoc(doc(db, 'artifacts', erpAppId, 'public', 'data', 'settings', 'general'), {
+              templeName: 'วัดไชยามาตย์ จังหวัดแพร่',
+            });
+          }
+        }, console.error);
+
+        return () => {
+          unsubInventory();
+          unsubTransactions();
+          unsubSettings();
+        };
+      }, [user]);
+
+      // Forms State
+      const [donationForm, setDonationForm] = useState({ title: '', purpose: '', amount: '', detailsUrl: '' });
+      const [expenseForm, setExpenseForm] = useState({ title: '', category: '', amount: '', payee: '', detailsUrl: '' });
+      const [countForm, setCountForm] = useState({ itemId: '', actualRemaining: '' });
+      const [newItemForm, setNewItemForm] = useState({ name: '', category: 'พระเครื่อง', price: '', stock: '', cost: '' });
+      const [newIncomeCat, setNewIncomeCat] = useState('');
+      const [newExpenseCat, setNewExpenseCat] = useState('');
+
+      const [editingItem, setEditingItem] = useState(null);
+      const [editForm, setEditForm] = useState({ name: '', price: '', stockAdjustType: 'none', stockAdjustValue: '', reason: '' });
+
+      const [qrModalVisible, setQrModalVisible] = useState(false);
+      const [qrContext, setQrContext] = useState('');
+      const [activeTransferId, setActiveTransferId] = useState(null);
+
+      useEffect(() => {
+        if (incomeCategories.length > 0 && !donationForm.purpose) {
+          setDonationForm(prev => ({ ...prev, purpose: incomeCategories[0] }));
+        }
+      }, [incomeCategories, donationForm.purpose]);
+
+      useEffect(() => {
+        if (expenseCategories.length > 0 && !expenseForm.category) {
+          setExpenseForm(prev => ({ ...prev, category: expenseCategories[0] }));
+        }
+      }, [expenseCategories, expenseForm.category]);
+
+      // --- Real-time Image Transfer Listener ---
+      useEffect(() => {
+        if (!activeTransferId || !user) return;
+        const transferRef = doc(db, 'artifacts', erpAppId, 'public', 'data', 'transfers', activeTransferId);
+        const unsub = onSnapshot(transferRef, (snapshot) => {
+          if (snapshot.exists()) {
+            const data = snapshot.data();
+            if (data.imageData) {
+              if (qrContext === 'donation') setDonationForm(prev => ({ ...prev, detailsUrl: data.imageData }));
+              else if (qrContext === 'expense') setExpenseForm(prev => ({ ...prev, detailsUrl: data.imageData }));
+              
+              setQrModalVisible(false);
+              setActiveTransferId(null);
+              deleteDoc(transferRef).catch(console.error);
+            }
+          }
+        });
+        return () => unsub();
+      }, [activeTransferId, qrContext, user]);
+
+      const showToast = (msg) => {
+        setNotifications(msg);
+        setTimeout(() => setNotifications(''), 3000);
+      };
+
+      const generateRef = (prefix) => {
+        const date = new Date();
+        const dStr = `${date.getFullYear().toString().substr(-2)}${String(date.getMonth()+1).padStart(2,'0')}`;
+        const randomNum = Math.floor(1000 + Math.random() * 9000);
+        return `${prefix}-${dStr}-${randomNum}`;
+      };
+
+      const getFormatDate = () => {
+        const now = new Date();
+        return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+      };
+
+      const formatMoney = (amount) => {
+        return new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB' }).format(amount);
+      };
+
+      const openQrSync = (context) => {
+        const newSessionId = `transfer-${Date.now()}-${Math.floor(Math.random()*10000)}`;
+        setActiveTransferId(newSessionId);
+        setQrContext(context);
+        setQrModalVisible(true);
+      };
+
+      const totalIncome = transactions.filter(t => t.type === 'INCOME').reduce((acc, curr) => acc + curr.amount, 0);
+      const totalExpense = transactions.filter(t => t.type === 'EXPENSE').reduce((acc, curr) => acc + curr.amount, 0);
+      const netBalance = totalIncome - totalExpense;
+      const lowStockItems = inventory.filter(i => i.stock <= 10);
+
+      // --- Database Handlers ---
+      const handleDonationSubmit = async (e) => {
+        e.preventDefault();
+        if (!donationForm.amount || !donationForm.title || !user) return;
+        const newTx = {
+          id: generateRef('TX'), date: getFormatDate(), type: 'INCOME',
+          category: 'รายรับรวบยอด', title: `${donationForm.title} (${donationForm.purpose})`,
+          amount: parseFloat(donationForm.amount), refId: generateRef('REC'), detailsUrl: donationForm.detailsUrl
+        };
+        await setDoc(doc(db, 'artifacts', erpAppId, 'public', 'data', 'transactions', newTx.id), newTx);
+        setDonationForm({ title: '', purpose: incomeCategories[0] || '', amount: '', detailsUrl: '' });
+        showToast('บันทึกยอดรวมสำเร็จ');
+      };
+
+      const handleExpenseSubmit = async (e) => {
+        e.preventDefault();
+        if (!expenseForm.amount || !expenseForm.title || !user) return;
+        const newTx = {
+          id: generateRef('TX'), date: getFormatDate(), type: 'EXPENSE',
+          category: expenseForm.category, title: `${expenseForm.title} (ผู้รับ: ${expenseForm.payee || 'ไม่ระบุ'})`,
+          amount: parseFloat(expenseForm.amount), refId: generateRef('EXP'), detailsUrl: expenseForm.detailsUrl
+        };
+        await setDoc(doc(db, 'artifacts', erpAppId, 'public', 'data', 'transactions', newTx.id), newTx);
+        setExpenseForm({ title: '', category: expenseCategories[0] || '', amount: '', payee: '', detailsUrl: '' });
+        showToast('บันทึกรายจ่ายเรียบร้อย');
+      };
+
+      const handleStockCountSubmit = async (e) => {
+        e.preventDefault();
+        if(!user) return;
+        const item = inventory.find(i => i.id === countForm.itemId);
+        const actualRemaining = parseInt(countForm.actualRemaining);
+        if (!item || isNaN(actualRemaining) || actualRemaining < 0) return alert('กรุณาระบุจำนวนยอดคงเหลือให้ถูกต้อง');
+        if (actualRemaining > item.stock) return alert(`ยอดคงเหลือที่ระบุ มากกว่าสต๊อกที่มีในระบบ`);
+
+        const soldQty = item.stock - actualRemaining;
+        await setDoc(doc(db, 'artifacts', erpAppId, 'public', 'data', 'inventory', item.id), { stock: actualRemaining }, { merge: true });
+
+        if (soldQty > 0) {
+          const newTx = {
+            id: generateRef('TX'), date: getFormatDate(), type: 'INCOME',
+            category: 'เช่าบูชา', title: `รายรับจากการเช่าบูชา ${item.name} (จำหน่ายออก ${soldQty} ชิ้น)`,
+            amount: item.price * soldQty, refId: item.id
+          };
+          await setDoc(doc(db, 'artifacts', erpAppId, 'public', 'data', 'transactions', newTx.id), newTx);
+          showToast(`บันทึกการจำหน่าย ${soldQty} ชิ้น และอัปเดตสต๊อกเรียบร้อย`);
+        } else {
+          showToast(`อัปเดตยอดคงเหลือเรียบร้อย`);
+        }
+        setCountForm({ itemId: '', actualRemaining: '' });
+      };
+
+      const handleAddInventory = async (e) => {
+        e.preventDefault();
+        if (!newItemForm.name || !newItemForm.price || !user) return;
+        const newItem = {
+          id: generateRef('INV'), name: newItemForm.name, category: newItemForm.category, price: parseFloat(newItemForm.price),
+          cost: parseFloat(newItemForm.cost || 0), stock: parseInt(newItemForm.stock || 0)
+        };
+        await setDoc(doc(db, 'artifacts', erpAppId, 'public', 'data', 'inventory', newItem.id), newItem);
+        setNewItemForm({ name: '', category: 'พระเครื่อง', price: '', stock: '', cost: '' });
+        showToast('เพิ่มรายการวัตถุมงคลเข้าคลังเรียบร้อย');
+      };
+
+      const handleSaveGeneralSettings = async (e) => {
+        e.preventDefault();
+        if (!user) return;
+        await setDoc(doc(db, 'artifacts', erpAppId, 'public', 'data', 'settings', 'general'), generalSettings, { merge: true });
+        showToast('บันทึกการตั้งค่าระบบเรียบร้อย');
+      };
+
+      const handleAddCategory = async (type, e) => {
+        e.preventDefault();
+        if (!user) return;
+        const value = type === 'income' ? newIncomeCat.trim() : newExpenseCat.trim();
+        if (!value) return;
+        const currentList = type === 'income' ? incomeCategories : expenseCategories;
+        if (currentList.includes(value)) return alert('หมวดหมู่นี้มีอยู่ในระบบแล้ว');
+        
+        await setDoc(doc(db, 'artifacts', erpAppId, 'public', 'data', 'settings', 'categories'), { [type]: [...currentList, value] }, { merge: true });
+        if (type === 'income') setNewIncomeCat('');
+        if (type === 'expense') setNewExpenseCat('');
+      };
+
+      const handleDeleteCategory = async (type, valueToDelete) => {
+        if (!user || !window.confirm(`ยืนยันการลบหมวดหมู่ "${valueToDelete}" ?`)) return;
+        const currentList = type === 'income' ? incomeCategories : expenseCategories;
+        await setDoc(doc(db, 'artifacts', erpAppId, 'public', 'data', 'settings', 'categories'), { [type]: currentList.filter(cat => cat !== valueToDelete) }, { merge: true });
+      };
+
+      const handleSaveEdit = async (e) => {
+        e.preventDefault();
+        if (!editingItem || !user) return;
+
+        let newStock = editingItem.stock;
+        const adjustVal = parseInt(editForm.stockAdjustValue) || 0;
+
+        if (editForm.stockAdjustType === 'add') newStock += adjustVal;
+        else if (editForm.stockAdjustType === 'reduce') newStock = Math.max(0, newStock - adjustVal);
+
+        const updatedItem = { ...editingItem, name: editForm.name, price: parseFloat(editForm.price), stock: newStock };
+        await setDoc(doc(db, 'artifacts', erpAppId, 'public', 'data', 'inventory', editingItem.id), updatedItem);
+
+        if (editForm.stockAdjustType !== 'none' && adjustVal > 0) {
+          const actionStr = editForm.stockAdjustType === 'add' ? 'เติมสต๊อก' : 'สูญหาย/ชำรุด';
+          const newTx = {
+            id: generateRef('TX'), date: getFormatDate(), type: 'INCOME', category: 'ปรับปรุงสต๊อก',
+            title: `[${actionStr}] ${editForm.name} ปรับจำนวน ${adjustVal} ชิ้น ${editForm.reason ? `(เหตุผล: ${editForm.reason})` : ''}`,
+            amount: 0, refId: editingItem.id, detailsUrl: ''
+          };
+          await setDoc(doc(db, 'artifacts', erpAppId, 'public', 'data', 'transactions', newTx.id), newTx);
+        }
+
+        setEditingItem(null);
+        showToast('บันทึกการแก้ไขรายการเรียบร้อย');
+      };
+
+
+      // --- วิดเจ็ตฟอร์มอัปโหลดรูปภาพหลักฐานแบบใหม่ ---
+      const renderImageUploadField = (formState, setFormState) => {
+        const isImageBase64 = formState.detailsUrl && formState.detailsUrl.startsWith('data:image');
+        return (
+          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+            <label className="block text-sm font-semibold text-slate-700 mb-3 flex justify-between items-center">
+              <span>รูปภาพหลักฐาน / ใบเสร็จรับเงิน (ถ้ามี)</span>
+            </label>
+            {isImageBase64 ? (
+              <div className="relative inline-block border-2 border-slate-200 rounded-lg overflow-hidden group">
+                <img src={formState.detailsUrl} alt="Evidence" className="h-32 object-contain bg-white" />
+                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                  <button type="button" onClick={() => setFormState({...formState, detailsUrl: ''})} className="text-white bg-rose-600 px-3 py-1 rounded-md text-sm font-medium hover:bg-rose-700">ลบรูปภาพ</button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex gap-2 items-center">
+                <button type="button" onClick={() => openQrSync(formState === donationForm ? 'donation' : 'expense')} className="flex-1 bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 py-3 rounded-lg transition flex items-center justify-center gap-2 font-bold shadow-sm">
+                  <Camera className="w-5 h-5"/> สแกน QR ถ่ายรูป
+                </button>
+                <span className="text-slate-400 text-sm font-medium px-2">หรือ</span>
+                <input type="url" value={formState.detailsUrl} onChange={e=>setFormState({...formState, detailsUrl: e.target.value})} className="flex-1 px-4 py-3 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition text-sm" placeholder="วางลิงก์รูปภาพทั่วไป"/>
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      if (loading) {
+        return (
+          <div className="flex h-screen items-center justify-center bg-slate-100">
+            <div className="flex flex-col items-center gap-4">
+              <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+              <p className="text-slate-600 font-medium">กำลังเชื่อมต่อฐานข้อมูล...</p>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="flex h-screen bg-slate-100 overflow-hidden">
+          
+          {/* Sidebar Navigation */}
+          <div className="w-64 bg-slate-900 text-slate-300 flex flex-col shadow-xl z-20 hidden md:flex print:hidden shrink-0">
+            <div className="p-6 flex items-center gap-3 text-white border-b border-slate-800">
+              <Landmark className="w-8 h-8 text-amber-500 shrink-0" />
+              <div className="overflow-hidden">
+                <h1 className="font-bold text-lg leading-tight truncate">ระบบบัญชีวัด</h1>
+                <p className="text-xs text-slate-400 truncate">{generalSettings.templeName}</p>
+              </div>
+            </div>
+            <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+              <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition ${activeTab === 'dashboard' ? 'bg-blue-600 text-white font-medium shadow-md' : 'hover:bg-slate-800 hover:text-white'}`}><LayoutDashboard className="w-5 h-5" /> ภาพรวม</button>
+              <div className="pt-4 pb-2 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">ระบบรายงาน</div>
+              <button onClick={() => setActiveTab('dailyReport')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition ${activeTab === 'dailyReport' ? 'bg-blue-600 text-white font-medium shadow-md' : 'hover:bg-slate-800 hover:text-white'}`}><CalendarDays className="w-5 h-5" /> พิมพ์รายงานประจำวัน</button>
+              <div className="pt-4 pb-2 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">ระบบรายได้</div>
+              <button onClick={() => setActiveTab('donation')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition ${activeTab === 'donation' ? 'bg-emerald-600 text-white font-medium shadow-md' : 'hover:bg-slate-800 hover:text-white'}`}><HandHeart className="w-5 h-5" /> รายรับรวบยอด</button>
+              <button onClick={() => setActiveTab('inventory')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition ${activeTab === 'inventory' ? 'bg-indigo-600 text-white font-medium shadow-md' : 'hover:bg-slate-800 hover:text-white'}`}><PackageSearch className="w-5 h-5" /> เช่าบูชา & นับสต๊อก</button>
+              <div className="pt-4 pb-2 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">ระบบรายจ่าย</div>
+              <button onClick={() => setActiveTab('expense')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition ${activeTab === 'expense' ? 'bg-rose-600 text-white font-medium shadow-md' : 'hover:bg-slate-800 hover:text-white'}`}><Receipt className="w-5 h-5" /> บันทึกเบิกจ่าย</button>
+              <div className="pt-4 pb-2 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">ตั้งค่าระบบ</div>
+              <button onClick={() => setActiveTab('ledger')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition ${activeTab === 'ledger' ? 'bg-slate-700 text-white font-medium shadow-md' : 'hover:bg-slate-800 hover:text-white'}`}><BookOpen className="w-5 h-5" /> สมุดรายวันทั่วไป</button>
+              <button onClick={() => setActiveTab('admin')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition ${activeTab === 'admin' ? 'bg-slate-700 text-white font-medium shadow-md' : 'hover:bg-slate-800 hover:text-white'}`}><ShieldCheck className="w-5 h-5" /> ตั้งค่าระบบ</button>
+            </nav>
+          </div>
+
+          {/* Main Content Area */}
+          <div className="flex-1 flex flex-col h-full overflow-hidden relative print:overflow-visible">
+            <div className="md:hidden bg-slate-900 text-white p-4 flex justify-between items-center shadow-md print:hidden shrink-0">
+              <div className="flex items-center gap-2 overflow-hidden"><Landmark className="w-6 h-6 text-amber-500 shrink-0"/> <span className="font-bold truncate">{generalSettings.templeName}</span></div>
+              <select value={activeTab} onChange={(e) => setActiveTab(e.target.value)} className="bg-slate-800 text-sm border-none rounded p-2 outline-none ml-2 shrink-0">
+                <option value="dashboard">ภาพรวม</option><option value="dailyReport">รายงาน</option><option value="donation">รับบริจาค</option>
+                <option value="inventory">คลังสินค้า</option><option value="expense">เบิกจ่าย</option><option value="ledger">สมุดรายวัน</option><option value="admin">ตั้งค่า</option>
+              </select>
+            </div>
+
+            {notifications && (
+              <div className="absolute top-6 right-6 z-50 bg-emerald-600 text-white px-6 py-3 rounded-xl shadow-2xl flex items-center gap-3 animate-in fade-in print:hidden">
+                <Save className="w-4 h-4"/><span className="font-medium text-sm">{notifications}</span>
+              </div>
+            )}
+
+            <main className="flex-1 overflow-y-auto p-4 md:p-8 print:p-0 bg-slate-50 print:bg-white">
+              <div className="max-w-6xl mx-auto print:max-w-none">
+                
+                {/* Views */}
+                {activeTab === 'dashboard' && (
+                  <div className="space-y-6 animate-in fade-in">
+                    <div className="flex justify-between items-end">
+                      <div><h2 className="text-2xl font-bold text-slate-800">ภาพรวมสถานะการเงิน (Dashboard)</h2><p className="text-slate-500">อัปเดต ณ {new Date().toLocaleDateString('th-TH')}</p></div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                      <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-6 text-white shadow-lg"><p className="text-slate-300 text-sm font-medium mb-2">ยอดยกไปรวมทั้งหมด</p><h3 className="text-3xl font-bold mb-4">{formatMoney(totalIncome - totalExpense)}</h3></div>
+                      <div className="bg-white border rounded-2xl p-6 shadow-sm"><p className="text-slate-500 text-sm font-medium mb-2">รวมรายรับทั้งหมด</p><h3 className="text-2xl font-bold text-emerald-600">{formatMoney(totalIncome)}</h3></div>
+                      <div className="bg-white border rounded-2xl p-6 shadow-sm"><p className="text-slate-500 text-sm font-medium mb-2">รวมรายจ่ายทั้งหมด</p><h3 className="text-2xl font-bold text-rose-600">{formatMoney(totalExpense)}</h3></div>
+                      <div className="bg-white border rounded-2xl p-6 shadow-sm"><p className="text-slate-500 text-sm font-medium mb-2">สต๊อกใกล้หมด</p>
+                        {lowStockItems.slice(0,3).map(item => <div key={item.id} className="flex justify-between text-sm border-b py-1"><span className="truncate pr-2">{item.name}</span><span className="text-rose-500 font-bold">{item.stock}</span></div>)}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'donation' && (
+                  <div className="space-y-6 animate-in fade-in">
+                    <div className="flex items-center gap-3 mb-6"><div className="bg-emerald-100 p-3 rounded-xl"><HandHeart className="w-6 h-6 text-emerald-600" /></div><div><h2 className="text-2xl font-bold text-slate-800">บันทึกรายรับรวบยอด</h2><p className="text-slate-500 text-sm">บันทึกยอดสรุป พร้อมสแกนแนบใบเสร็จเพื่อความโปร่งใส</p></div></div>
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border max-w-2xl">
+                      <form onSubmit={handleDonationSubmit} className="space-y-4">
+                        <div><label className="block text-sm font-semibold mb-1">รายการสรุปยอด / แหล่งที่มา</label><input required type="text" value={donationForm.title} onChange={e=>setDonationForm({...donationForm, title: e.target.value})} className="w-full px-4 py-2 bg-slate-50 border rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"/></div>
+                        <div><label className="block text-sm font-semibold mb-1">หมวดหมู่รายรับ</label><select value={donationForm.purpose} onChange={e=>setDonationForm({...donationForm, purpose: e.target.value})} className="w-full px-4 py-2 bg-slate-50 border rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none">{incomeCategories.map((cat, idx) => <option key={idx} value={cat}>{cat}</option>)}</select></div>
+                        {renderImageUploadField(donationForm, setDonationForm)}
+                        <div><label className="block text-sm font-semibold mb-1">จำนวนเงินรวม (บาท)</label><input required type="number" min="1" value={donationForm.amount} onChange={e=>setDonationForm({...donationForm, amount: e.target.value})} className="w-full px-4 py-2 bg-slate-50 border rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-emerald-600 font-bold text-lg"/></div>
+                        <button type="submit" className="w-full bg-emerald-600 text-white font-bold py-3 rounded-lg hover:bg-emerald-700 flex items-center justify-center gap-2"><Save className="w-5 h-5"/> บันทึกยอดรับ</button>
+                      </form>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'expense' && (
+                  <div className="space-y-6 animate-in fade-in">
+                    <div className="flex items-center gap-3 mb-6"><div className="bg-rose-100 p-3 rounded-xl"><Receipt className="w-6 h-6 text-rose-600" /></div><div><h2 className="text-2xl font-bold text-slate-800">ระบบเบิกจ่าย (Expenses)</h2></div></div>
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border max-w-2xl">
+                      <form onSubmit={handleExpenseSubmit} className="space-y-4">
+                        <div><label className="block text-sm font-semibold mb-1">รายการเบิกจ่าย</label><input required type="text" value={expenseForm.title} onChange={e=>setExpenseForm({...expenseForm, title: e.target.value})} className="w-full px-4 py-2 bg-slate-50 border rounded-lg focus:ring-2 focus:ring-rose-500 outline-none"/></div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div><label className="block text-sm font-semibold mb-1">หมวดหมู่</label><select value={expenseForm.category} onChange={e=>setExpenseForm({...expenseForm, category: e.target.value})} className="w-full px-4 py-2 bg-slate-50 border rounded-lg outline-none">{expenseCategories.map((cat, idx) => <option key={idx} value={cat}>{cat}</option>)}</select></div>
+                          <div><label className="block text-sm font-semibold mb-1">ผู้รับเงิน</label><input type="text" value={expenseForm.payee} onChange={e=>setExpenseForm({...expenseForm, payee: e.target.value})} className="w-full px-4 py-2 bg-slate-50 border rounded-lg outline-none"/></div>
+                        </div>
+                        {renderImageUploadField(expenseForm, setExpenseForm)}
+                        <div><label className="block text-sm font-semibold mb-1">จำนวนเงิน (บาท)</label><input required type="number" min="1" value={expenseForm.amount} onChange={e=>setExpenseForm({...expenseForm, amount: e.target.value})} className="w-full px-4 py-2 bg-slate-50 border rounded-lg focus:ring-2 focus:ring-rose-500 outline-none text-rose-600 font-bold text-lg"/></div>
+                        <button type="submit" className="w-full bg-rose-600 text-white font-bold py-3 rounded-lg hover:bg-rose-700 flex items-center justify-center gap-2"><Save className="w-5 h-5"/> บันทึกเบิกจ่าย</button>
+                      </form>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'inventory' && (
+                  <div className="space-y-6 animate-in fade-in">
+                    <h2 className="text-2xl font-bold text-slate-800 mb-6">จัดการคลังวัตถุมงคล</h2>
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                      <div className="bg-white p-6 rounded-2xl shadow-sm border"><h3 className="font-bold mb-4 border-b pb-2">อัปเดตยอดนับจริง (ตัดสต๊อก)</h3>
+                        <form onSubmit={handleStockCountSubmit} className="space-y-4">
+                          <select required value={countForm.itemId} onChange={e=>setCountForm({...countForm, itemId: e.target.value, actualRemaining: ''})} className="w-full px-4 py-2 bg-slate-50 border rounded-lg"><option value="" disabled>-- เลือกวัตถุมงคล --</option>{inventory.map(item => <option key={item.id} value={item.id}>{item.name} (ในระบบ: {item.stock})</option>)}</select>
+                          <input required type="number" min="0" value={countForm.actualRemaining} onChange={e=>setCountForm({...countForm, actualRemaining: e.target.value})} className="w-full px-4 py-3 bg-white border rounded-lg text-center font-bold text-xl text-indigo-700" placeholder="ยอดคงเหลือที่นับได้จริง" disabled={!countForm.itemId}/>
+                          <button type="submit" disabled={!countForm.itemId} className="w-full bg-indigo-600 text-white font-bold py-3 rounded-lg hover:bg-indigo-700">ยืนยันยอดคงเหลือ</button>
+                        </form>
+                      </div>
+                      <div className="lg:col-span-2 space-y-6">
+                        <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
+                          <div className="max-h-[300px] overflow-y-auto">
+                            <table className="w-full text-left text-sm"><thead className="bg-slate-50 sticky top-0"><tr><th className="px-6 py-3">รหัส</th><th className="px-6 py-3">ชื่อรายการ</th><th className="px-6 py-3 text-right">ราคา</th><th className="px-6 py-3 text-center">คงเหลือ</th><th className="px-6 py-3 text-center">จัดการ</th></tr></thead>
+                              <tbody className="divide-y">{inventory.map(item => (
+                                <tr key={item.id}><td className="px-6 py-3 font-mono text-xs text-slate-400">{item.id}</td><td className="px-6 py-3">{item.name}</td><td className="px-6 py-3 text-right text-indigo-600 font-semibold">{formatMoney(item.price)}</td><td className="px-6 py-3 text-center font-bold">{item.stock}</td><td className="px-6 py-3 text-center"><button onClick={() => openEditModal(item)} className="text-slate-400 hover:text-blue-600"><Edit2 className="w-4 h-4" /></button></td></tr>
+                              ))}</tbody>
+                            </table>
+                          </div>
+                        </div>
+                        <div className="bg-slate-50 p-6 rounded-2xl border border-dashed"><h4 className="font-bold mb-4">เพิ่มรายการใหม่เข้าคลัง</h4>
+                          <form onSubmit={handleAddInventory} className="flex gap-4 items-end">
+                            <div className="flex-1"><label className="block text-xs mb-1">ชื่อ</label><input required type="text" value={newItemForm.name} onChange={e=>setNewItemForm({...newItemForm, name: e.target.value})} className="w-full px-3 py-2 border rounded-lg"/></div>
+                            <div className="w-24"><label className="block text-xs mb-1">ราคา</label><input required type="number" value={newItemForm.price} onChange={e=>setNewItemForm({...newItemForm, price: e.target.value})} className="w-full px-3 py-2 border rounded-lg"/></div>
+                            <div className="w-24"><label className="block text-xs mb-1">จำนวน</label><input required type="number" value={newItemForm.stock} onChange={e=>setNewItemForm({...newItemForm, stock: e.target.value})} className="w-full px-3 py-2 border rounded-lg"/></div>
+                            <button type="submit" className="bg-slate-800 text-white p-2 rounded-lg hover:bg-slate-700"><Plus className="w-5 h-5"/></button>
+                          </form>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'ledger' && (
+                  <div className="space-y-6 animate-in fade-in">
+                    <h2 className="text-2xl font-bold text-slate-800 mb-6">สมุดรายวันทั่วไป</h2>
+                    <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-sm whitespace-nowrap"><thead className="bg-slate-50 border-b"><tr><th className="px-6 py-4">วัน/เวลา</th><th className="px-6 py-4">Ref.</th><th className="px-6 py-4">รายการ</th><th className="px-6 py-4">หมวดหมู่</th><th className="px-6 py-4 text-right text-emerald-700">รายรับ</th><th className="px-6 py-4 text-right text-rose-700">รายจ่าย</th></tr></thead>
+                          <tbody className="divide-y">{transactions.map(tx => (
+                            <tr key={tx.id}><td className="px-6 py-4 text-slate-500">{tx.date}</td><td className="px-6 py-4 font-mono text-xs">{tx.id}</td>
+                              <td className="px-6 py-4"><div className="flex items-center gap-2"><span>{tx.title}</span>{tx.detailsUrl && <button onClick={() => setPreviewImage(tx.detailsUrl)} className="text-blue-500 bg-blue-50 p-1.5 rounded-md"><ImageIcon className="w-4 h-4" /></button>}</div></td>
+                              <td className="px-6 py-4"><span className="px-2.5 py-1 bg-slate-100 rounded-md text-xs">{tx.category}</span></td><td className="px-6 py-4 text-right font-bold text-emerald-600">{tx.type === 'INCOME' ? formatMoney(tx.amount) : ''}</td><td className="px-6 py-4 text-right font-bold text-rose-600">{tx.type === 'EXPENSE' ? formatMoney(tx.amount) : ''}</td>
+                            </tr>
+                          ))}</tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'admin' && (
+                  <div className="space-y-6 animate-in fade-in">
+                    <h2 className="text-2xl font-bold text-slate-800 mb-6">ตั้งค่าระบบ (Admin)</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      <div className="md:col-span-2 bg-white p-6 rounded-2xl shadow-sm border"><h3 className="font-bold mb-4">ตั้งค่าทั่วไป</h3>
+                        <form onSubmit={handleSaveGeneralSettings} className="space-y-4 max-w-2xl"><label className="block text-sm">ชื่อระบบ / ชื่อวัด</label><input type="text" value={generalSettings.templeName} onChange={e => setGeneralSettings({...generalSettings, templeName: e.target.value})} className="w-full px-4 py-2 border rounded-lg"/><button type="submit" className="bg-blue-600 text-white px-6 py-2.5 rounded-lg font-bold">บันทึกตั้งค่า</button></form>
+                      </div>
+                      <div className="bg-white p-6 rounded-2xl border border-emerald-100"><h3 className="font-bold mb-4">หมวดหมู่รายรับ</h3><form onSubmit={(e) => handleAddCategory('income', e)} className="flex gap-2 mb-4"><input type="text" value={newIncomeCat} onChange={e => setNewIncomeCat(e.target.value)} className="flex-1 px-3 py-2 border rounded-lg" placeholder="เพิ่ม..."/><button className="bg-emerald-600 text-white px-4 rounded-lg"><Plus className="w-4 h-4"/></button></form><div className="space-y-2">{incomeCategories.map(cat => <div key={cat} className="flex justify-between bg-slate-50 px-4 py-2 border rounded-lg text-sm"><span>{cat}</span><button onClick={() => handleDeleteCategory('income', cat)} className="text-slate-400 hover:text-rose-500"><Trash2 className="w-4 h-4"/></button></div>)}</div></div>
+                      <div className="bg-white p-6 rounded-2xl border border-rose-100"><h3 className="font-bold mb-4">หมวดหมู่รายจ่าย</h3><form onSubmit={(e) => handleAddCategory('expense', e)} className="flex gap-2 mb-4"><input type="text" value={newExpenseCat} onChange={e => setNewExpenseCat(e.target.value)} className="flex-1 px-3 py-2 border rounded-lg" placeholder="เพิ่ม..."/><button className="bg-rose-600 text-white px-4 rounded-lg"><Plus className="w-4 h-4"/></button></form><div className="space-y-2">{expenseCategories.map(cat => <div key={cat} className="flex justify-between bg-slate-50 px-4 py-2 border rounded-lg text-sm"><span>{cat}</span><button onClick={() => handleDeleteCategory('expense', cat)} className="text-slate-400 hover:text-rose-500"><Trash2 className="w-4 h-4"/></button></div>)}</div></div>
+                      <div className="md:col-span-2 bg-rose-50 p-6 rounded-2xl border border-rose-200"><h3 className="font-bold text-rose-800 mb-2">ล้างฐานข้อมูล (Reset)</h3><button onClick={async () => { if(window.confirm('ลบข้อมูลทั้งหมด?')) { for (const i of inventory) await deleteDoc(doc(db, 'artifacts', erpAppId, 'public', 'data', 'inventory', i.id)); for (const t of transactions) await deleteDoc(doc(db, 'artifacts', erpAppId, 'public', 'data', 'transactions', t.id)); showToast('ล้างข้อมูลเรียบร้อย'); } }} className="bg-rose-600 text-white px-6 py-2 rounded-lg font-bold">ล้างข้อมูลทั้งหมด</button></div>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'dailyReport' && (
+                  <div className="space-y-6 animate-in fade-in print:p-0">
+                    <div className="print:hidden">
+                      <div className="flex justify-between items-center mb-6">
+                        <h2 className="text-2xl font-bold text-slate-800">รายงานการรับ-จ่าย ประจำวัน</h2>
+                        <div className="flex gap-3"><input type="date" value={reportDate} onChange={(e) => setReportDate(e.target.value)} className="px-4 py-2 border rounded-lg"/><button onClick={() => setShowPrintPreview(true)} className="bg-slate-800 text-white px-4 py-2 rounded-lg flex items-center gap-2"><FileText className="w-4 h-4"/> พรีวิว</button></div>
+                      </div>
+                    </div>
+                    {showPrintPreview && (
+                      <div className="fixed inset-0 z-[100] bg-slate-500/90 flex flex-col print:static print:bg-white print:block">
+                        <div className="bg-slate-900 p-4 flex justify-between print:hidden"><button onClick={() => setShowPrintPreview(false)} className="text-white bg-slate-800 px-4 py-2 rounded-lg">ปิดหน้าต่าง</button><button onClick={() => window.print()} className="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold">สั่งพิมพ์ (Print)</button></div>
+                        <div className="flex-1 overflow-auto p-8 print:p-0">
+                          <div className="bg-white w-full max-w-[21cm] min-h-[29.7cm] mx-auto p-12 shadow-2xl print:shadow-none print:p-0">
+                            <div className="text-center mb-8 border-b-2 border-slate-800 pb-6"><h1 className="text-2xl font-bold mb-2">รายงานสรุปรับ-จ่าย ประจำวัน</h1><h2 className="text-xl font-bold mb-2">{generalSettings.templeName}</h2><p className="text-lg">ประจำวันที่ {new Date(reportDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}</p></div>
+                            {/* แสดงรายการ (ย่อโค้ดเพื่อความกระชับของการแสดงผลในหน้าเดียว) */}
+                            <table className="w-full text-left text-sm mb-8"><thead className="bg-slate-100"><tr><th className="py-2 px-3">เวลา</th><th className="py-2 px-3">หมวดหมู่</th><th className="py-2 px-3">รายการรับ</th><th className="py-2 px-3 text-right">จำนวนเงิน</th></tr></thead><tbody>{transactions.filter(t => t.date.startsWith(reportDate) && t.type === 'INCOME').map(tx => <tr key={tx.id}><td className="py-2 px-3">{tx.date.split(' ')[1]}</td><td className="py-2 px-3">{tx.category}</td><td className="py-2 px-3">{tx.title}</td><td className="py-2 px-3 text-right">{formatMoney(tx.amount)}</td></tr>)}<tr className="font-bold border-t-2"><td colSpan="3" className="py-3 px-3 text-right">รวมรับ:</td><td className="py-3 px-3 text-right text-emerald-700">{formatMoney(transactions.filter(t => t.date.startsWith(reportDate) && t.type === 'INCOME').reduce((a,c)=>a+c.amount,0))}</td></tr></tbody></table>
+                            <table className="w-full text-left text-sm"><thead className="bg-slate-100"><tr><th className="py-2 px-3">เวลา</th><th className="py-2 px-3">หมวดหมู่</th><th className="py-2 px-3">รายการจ่าย</th><th className="py-2 px-3 text-right">จำนวนเงิน</th></tr></thead><tbody>{transactions.filter(t => t.date.startsWith(reportDate) && t.type === 'EXPENSE').map(tx => <tr key={tx.id}><td className="py-2 px-3">{tx.date.split(' ')[1]}</td><td className="py-2 px-3">{tx.category}</td><td className="py-2 px-3">{tx.title}</td><td className="py-2 px-3 text-right">{formatMoney(tx.amount)}</td></tr>)}<tr className="font-bold border-t-2"><td colSpan="3" className="py-3 px-3 text-right">รวมจ่าย:</td><td className="py-3 px-3 text-right text-rose-700">{formatMoney(transactions.filter(t => t.date.startsWith(reportDate) && t.type === 'EXPENSE').reduce((a,c)=>a+c.amount,0))}</td></tr></tbody></table>
+                            <div className="mt-16 flex justify-between px-10"><div className="text-center"><p>ลงชื่อ.........................................ผู้รายงาน</p></div><div className="text-center"><p>ลงชื่อ.........................................ผู้ตรวจ</p></div></div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </main>
+          </div>
+
+          {/* Edit Modal */}
+          {editingItem && (
+            <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-2xl w-full max-w-md p-6"><h3 className="font-bold mb-4">แก้ไขรายการ: {editingItem.name}</h3><form onSubmit={handleSaveEdit} className="space-y-4"><input required type="text" value={editForm.name} onChange={e=>setEditForm({...editForm, name: e.target.value})} className="w-full px-3 py-2 border rounded-lg" placeholder="ชื่อรายการ"/><input required type="number" value={editForm.price} onChange={e=>setEditForm({...editForm, price: e.target.value})} className="w-full px-3 py-2 border rounded-lg" placeholder="ราคา"/><div className="border-t pt-4"><label className="block text-sm font-semibold mb-2">ปรับปรุงสต๊อก</label><div className="flex gap-4 mb-4"><label><input type="radio" checked={editForm.stockAdjustType === 'none'} onChange={() => setEditForm({...editForm, stockAdjustType: 'none'})} /> ไม่ปรับ</label><label><input type="radio" checked={editForm.stockAdjustType === 'add'} onChange={() => setEditForm({...editForm, stockAdjustType: 'add'})} /> เติม (+)</label><label><input type="radio" checked={editForm.stockAdjustType === 'reduce'} onChange={() => setEditForm({...editForm, stockAdjustType: 'reduce'})} /> หัก (-)</label></div>{editForm.stockAdjustType !== 'none' && <input required type="number" min="1" value={editForm.stockAdjustValue} onChange={e=>setEditForm({...editForm, stockAdjustValue: e.target.value})} className="w-full px-3 py-2 border rounded-lg" placeholder="จำนวน"/>}</div><div className="flex gap-3 mt-4"><button type="button" onClick={() => setEditingItem(null)} className="flex-1 border py-2 rounded-lg">ยกเลิก</button><button type="submit" className="flex-1 bg-indigo-600 text-white py-2 rounded-lg">บันทึก</button></div></form></div>
+            </div>
+          )}
+
+          {/* QR Scan Modal */}
+          {qrModalVisible && (
+            <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-50 p-4 print:hidden">
+              <div className="bg-white rounded-3xl w-full max-w-sm text-center p-8 relative">
+                <button onClick={() => {setQrModalVisible(false); setActiveTransferId(null);}} className="absolute top-4 right-4 bg-slate-100 rounded-full p-2"><X className="w-5 h-5"/></button>
+                <div className="mx-auto bg-blue-50 text-blue-600 w-16 h-16 rounded-full flex items-center justify-center mb-4"><Camera className="w-8 h-8"/></div>
+                <h3 className="font-bold text-xl mb-2">สแกนเพื่อถ่ายรูปจากมือถือ</h3>
+                <p className="text-sm text-slate-500 mb-6">เปิดกล้องมือถือสแกน QR Code นี้</p>
+                <div className="flex justify-center mb-6 bg-white p-4 rounded-xl border inline-block shadow-sm">
+                  {activeTransferId && <img src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(window.location.origin + window.location.pathname + '?transfer=' + activeTransferId)}&margin=0`} alt="QR Code" className="w-48 h-48 rounded-lg" />}
+                </div>
+                <div className="flex flex-col items-center gap-2 text-blue-600"><Loader2 className="w-6 h-6 animate-spin" /><p className="text-sm font-semibold animate-pulse">รอรับรูปภาพจากโทรศัพท์...</p></div>
+              </div>
+            </div>
+          )}
+
+          {/* Full Image Preview */}
+          {previewImage && (
+            <div className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center p-4" onClick={() => setPreviewImage(null)}>
+              <button onClick={() => setPreviewImage(null)} className="absolute top-6 right-6 text-white bg-white/10 rounded-full p-2"><X className="w-8 h-8"/></button>
+              <img src={previewImage} alt="Evidence" className="max-w-full max-h-full object-contain rounded-lg" onClick={e => e.stopPropagation()} />
+            </div>
+          )}
+
+        </div>
+      );
+    }
+
+    const root = createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
