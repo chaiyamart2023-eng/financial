@@ -21,7 +21,7 @@
     }
   </style>
 
-  <!-- ES Modules Setup for React, Lucide, and Firebase -->
+  <!-- ES Modules Setup for React, Lucide, Firebase, and Recharts -->
   <script type="importmap">
     {
       "imports": {
@@ -30,7 +30,8 @@
         "lucide-react": "https://esm.sh/lucide-react@0.344.0",
         "firebase/app": "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js",
         "firebase/auth": "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js",
-        "firebase/firestore": "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js"
+        "firebase/firestore": "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js",
+        "recharts": "https://esm.sh/recharts@2.12.2?deps=react@18.2.0,react-dom@18.2.0"
       }
     }
   </script>
@@ -48,12 +49,19 @@
       LayoutDashboard, BookOpen, HandHeart, PackageSearch, Receipt, Plus, Trash2, Save,
       TrendingUp, TrendingDown, Building2, Landmark, Wallet, AlertCircle, FileText,
       Printer, ExternalLink, CalendarDays, FileSpreadsheet, Edit2, X, QrCode, ShieldCheck,
-      Camera, CheckCircle2, Image as ImageIcon, Loader2, ClipboardList, Check, XCircle, Clock
+      Camera, CheckCircle2, Image as ImageIcon, Loader2, ClipboardList, Check, XCircle, Clock,
+      BrainCircuit, Filter
     } from 'lucide-react';
     
     import { initializeApp } from 'firebase/app';
     import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
     import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
+    
+    // Import Recharts for Dashboard
+    import { 
+      BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, 
+      Tooltip as RechartsTooltip, Legend, ResponsiveContainer 
+    } from 'recharts';
 
     // นำการตั้งค่า Firebase ของคุณมาใช้งาน
     const firebaseConfig = {
@@ -181,6 +189,9 @@
       const [notifications, setNotifications] = useState('');
       const [showPrintPreview, setShowPrintPreview] = useState(false);
       const [previewImage, setPreviewImage] = useState(null);
+
+      // Dashboard Filters
+      const [dashboardPeriod, setDashboardPeriod] = useState('all'); // all, currentMonth, lastMonth
 
       const getTodayString = () => {
         const tzoffset = (new Date()).getTimezoneOffset() * 60000;
@@ -339,13 +350,88 @@
       const validTransactions = transactions.filter(t => t.status === 'APPROVED' || !t.status);
       const pendingTransactions = transactions.filter(t => t.status === 'PENDING');
       
-      const totalIncome = validTransactions.filter(t => t.type === 'INCOME').reduce((acc, curr) => acc + curr.amount, 0);
-      const totalExpense = validTransactions.filter(t => t.type === 'EXPENSE').reduce((acc, curr) => acc + curr.amount, 0);
-      const netBalance = totalIncome - totalExpense;
       const lowStockItems = inventory.filter(i => i.stock <= 10);
 
-      const selectedItemForCount = inventory.find(i => i.id === countForm.itemId);
-      const simulatedSoldQty = countForm.actualRemaining !== '' ? (selectedItemForCount?.stock - parseInt(countForm.actualRemaining)) : null;
+      // --- Dashboard Intelligent Data & Charts ---
+      const getDashboardTransactions = () => {
+        const now = new Date();
+        const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        
+        let lastMonthDate = new Date();
+        lastMonthDate.setMonth(lastMonthDate.getMonth() - 1);
+        const lastMonth = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth() + 1).padStart(2, '0')}`;
+
+        if (dashboardPeriod === 'currentMonth') {
+          return validTransactions.filter(t => t.date.startsWith(currentMonth));
+        } else if (dashboardPeriod === 'lastMonth') {
+          return validTransactions.filter(t => t.date.startsWith(lastMonth));
+        }
+        return validTransactions; 
+      };
+
+      const dashTx = getDashboardTransactions();
+      const dashIncome = dashTx.filter(t => t.type === 'INCOME').reduce((a, c) => a + c.amount, 0);
+      const dashExpense = dashTx.filter(t => t.type === 'EXPENSE').reduce((a, c) => a + c.amount, 0);
+      const dashNet = dashIncome - dashExpense;
+
+      // Prepare Chart Data
+      const trendDataMap = {};
+      const expCatMap = {};
+      const incCatMap = {};
+
+      dashTx.forEach(tx => {
+        // Trend Data (Group by Date)
+        const dateKey = tx.date.split(' ')[0]; // YYYY-MM-DD
+        if(!trendDataMap[dateKey]) trendDataMap[dateKey] = { date: dateKey, 'รายรับ': 0, 'รายจ่าย': 0 };
+        if(tx.type === 'INCOME') trendDataMap[dateKey]['รายรับ'] += tx.amount;
+        if(tx.type === 'EXPENSE') trendDataMap[dateKey]['รายจ่าย'] += tx.amount;
+
+        // Categories Data
+        if(tx.type === 'EXPENSE') {
+          if(!expCatMap[tx.category]) expCatMap[tx.category] = 0;
+          expCatMap[tx.category] += tx.amount;
+        }
+        if(tx.type === 'INCOME') {
+          if(!incCatMap[tx.category]) incCatMap[tx.category] = 0;
+          incCatMap[tx.category] += tx.amount;
+        }
+      });
+
+      const trendData = Object.values(trendDataMap).sort((a,b) => a.date.localeCompare(b.date));
+      const expensePieData = Object.keys(expCatMap).map(k => ({ name: k, value: expCatMap[k] }));
+      const incomePieData = Object.keys(incCatMap).map(k => ({ name: k, value: incCatMap[k] }));
+      const CHART_COLORS = ['#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#6366f1', '#ec4899'];
+
+      // AI Insights Logic
+      const generateInsights = () => {
+        if (dashTx.length === 0) return ["ยังไม่มีข้อมูลธุรกรรมในช่วงเวลาที่เลือก"];
+        const insights = [];
+        
+        if (dashIncome > 0) {
+           const percentSaved = ((dashNet / dashIncome) * 100).toFixed(1);
+           if (dashNet > 0) {
+              insights.push(`สถานภาพคล่อง: มีเงินคงเหลือ ${percentSaved}% ของรายรับรวม ถือว่าอยู่ในเกณฑ์ที่ดีมาก`);
+           } else {
+              insights.push(`⚠️ แจ้งเตือน: สภาพคล่องติดลบ (รายจ่ายสูงกว่ารายรับ) ควรพิจารณาควบคุมการเบิกจ่าย`);
+           }
+        } else if (dashExpense > 0) {
+           insights.push(`⚠️ แจ้งเตือน: ในช่วงเวลานี้มีแต่รายจ่ายโดยไม่มีรายรับเข้ามาในระบบ`);
+        }
+
+        if (expensePieData.length > 0) {
+           const topExp = [...expensePieData].sort((a,b) => b.value - a.value)[0];
+           const percentExp = ((topExp.value / dashExpense) * 100).toFixed(1);
+           insights.push(`การใช้จ่าย: หมวดหมู่ที่ถูกใช้จ่ายมากที่สุดคือ "${topExp.name}" คิดเป็น ${percentExp}% ของรายจ่ายทั้งหมด`);
+        }
+
+        if (incomePieData.length > 0) {
+           const topInc = [...incomePieData].sort((a,b) => b.value - a.value)[0];
+           const percentInc = ((topInc.value / dashIncome) * 100).toFixed(1);
+           insights.push(`รายได้หลัก: มาจากหมวดหมู่ "${topInc.name}" คิดเป็น ${percentInc}% ของรายได้ทั้งหมด`);
+        }
+
+        return insights;
+      };
 
       // --- Export Handlers ---
       const exportCSV = () => {
@@ -381,7 +467,7 @@
                       <td>${tx.type === 'EXPENSE' ? tx.amount : ''}</td>
                     </tr>
                   `).join('')}
-                  <tr><td colspan="4"><b>รวมยอดสะสมทั้งหมด</b></td><td><b>${totalIncome}</b></td><td><b>${totalExpense}</b></td></tr>
+                  <tr><td colspan="4"><b>รวมยอดสะสมทั้งหมด</b></td><td><b>${validTransactions.filter(t => t.type === 'INCOME').reduce((a, c) => a + c.amount, 0)}</b></td><td><b>${validTransactions.filter(t => t.type === 'EXPENSE').reduce((a, c) => a + c.amount, 0)}</b></td></tr>
                 </tbody>
               </table>
             </body>
@@ -667,30 +753,54 @@
                 {/* --- Dashboard View --- */}
                 {activeTab === 'dashboard' && (
                   <div className="space-y-6 animate-in fade-in">
-                    <div className="flex justify-between items-end">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                       <div>
                         <h2 className="text-2xl font-bold text-slate-800">ภาพรวมสถานะการเงิน (Dashboard)</h2>
-                        <p className="text-slate-500">อัปเดต ณ {new Date().toLocaleDateString('th-TH')}</p>
+                        <p className="text-slate-500">วิเคราะห์ข้อมูลและแสดงผลในรูปแบบกราฟ</p>
+                      </div>
+                      <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-lg border border-slate-200 shadow-sm w-full md:w-auto">
+                        <Filter className="w-5 h-5 text-blue-500"/>
+                        <select value={dashboardPeriod} onChange={e=>setDashboardPeriod(e.target.value)} className="bg-transparent text-sm font-semibold outline-none text-slate-700 w-full cursor-pointer py-1">
+                          <option value="all">ข้อมูลทั้งหมด (All Time)</option>
+                          <option value="currentMonth">เดือนปัจจุบัน</option>
+                          <option value="lastMonth">เดือนที่แล้ว</option>
+                        </select>
                       </div>
                     </div>
+
                     {pendingTransactions.length > 0 && (
                       <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-r-xl flex justify-between items-center cursor-pointer hover:bg-amber-100 transition" onClick={() => setActiveTab('approvals')}>
                         <div className="flex items-center gap-3"><Clock className="w-6 h-6 text-amber-600" /><div><h4 className="font-bold text-amber-800">มีคำขอเบิกเงินรออนุมัติ {pendingTransactions.length} รายการ</h4><p className="text-sm text-amber-700">คลิกเพื่อตรวจสอบและดำเนินการ</p></div></div>
                         <ChevronRight className="w-5 h-5 text-amber-600" />
                       </div>
                     )}
+
+                    {/* AI Insights Card */}
+                    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-6 md:p-8 rounded-2xl border border-blue-100 shadow-sm">
+                      <h3 className="flex items-center gap-2 text-lg font-bold text-indigo-900 mb-4">
+                        <BrainCircuit className="w-6 h-6 text-indigo-600"/> การวิเคราะห์อัจฉริยะ (AI Insights)
+                      </h3>
+                      <ul className="space-y-3">
+                        {generateInsights().map((text, i) => (
+                          <li key={i} className="flex items-start gap-3 text-indigo-800 text-sm md:text-base font-medium">
+                            <span className="text-indigo-500 mt-0.5"><CheckCircle2 className="w-5 h-5"/></span> {text}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                       <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-6 text-white shadow-lg">
                         <p className="text-slate-300 text-sm font-medium mb-2">ยอดยกไปรวมทั้งหมด</p>
-                        <h3 className="text-3xl font-bold mb-4">{formatMoney(netBalance)}</h3>
+                        <h3 className="text-3xl font-bold mb-4">{formatMoney(dashNet)}</h3>
                       </div>
                       <div className="bg-white border rounded-2xl p-6 shadow-sm">
-                        <p className="text-slate-500 text-sm font-medium mb-2">รวมรายรับทั้งหมด (อนุมัติแล้ว)</p>
-                        <h3 className="text-2xl font-bold text-emerald-600">{formatMoney(totalIncome)}</h3>
+                        <p className="text-slate-500 text-sm font-medium mb-2">รวมรายรับ (อนุมัติแล้ว)</p>
+                        <h3 className="text-2xl font-bold text-emerald-600">{formatMoney(dashIncome)}</h3>
                       </div>
                       <div className="bg-white border rounded-2xl p-6 shadow-sm">
-                        <p className="text-slate-500 text-sm font-medium mb-2">รวมรายจ่ายทั้งหมด (อนุมัติแล้ว)</p>
-                        <h3 className="text-2xl font-bold text-rose-600">{formatMoney(totalExpense)}</h3>
+                        <p className="text-slate-500 text-sm font-medium mb-2">รวมรายจ่าย (อนุมัติแล้ว)</p>
+                        <h3 className="text-2xl font-bold text-rose-600">{formatMoney(dashExpense)}</h3>
                       </div>
                       <div className="bg-white border rounded-2xl p-6 shadow-sm overflow-hidden">
                         <p className="text-slate-500 text-sm font-medium mb-2 flex items-center gap-2"><AlertCircle className="w-4 h-4 text-amber-500"/> สต๊อกใกล้หมด</p>
@@ -707,6 +817,99 @@
                           <p className="text-sm text-slate-400 mt-4">สต๊อกอยู่ในเกณฑ์ปกติ</p>
                         )}
                       </div>
+                    </div>
+
+                    {/* Charts Area */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+                      
+                      {/* Bar Chart: Trend */}
+                      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                        <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2"><TrendingUp className="w-5 h-5 text-blue-500"/> แนวโน้มรายรับ - รายจ่าย (แท่ง)</h3>
+                        <div className="h-72 w-full text-sm">
+                          {trendData.length > 0 ? (
+                            <ResponsiveContainer width="100%" height="100%">
+                              <BarChart data={trendData}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0"/>
+                                <XAxis dataKey="date" tick={{fill: '#64748b'}} axisLine={false} tickLine={false} />
+                                <YAxis tick={{fill: '#64748b'}} axisLine={false} tickLine={false} tickFormatter={(val)=>`฿${val.toLocaleString()}`}/>
+                                <RechartsTooltip cursor={{fill: '#f8fafc'}} formatter={(value) => `฿${value.toLocaleString()}`} contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}} />
+                                <Legend iconType="circle" wrapperStyle={{paddingTop: '20px'}}/>
+                                <Bar dataKey="รายรับ" fill="#10b981" radius={[4,4,0,0]} maxBarSize={40} />
+                                <Bar dataKey="รายจ่าย" fill="#ef4444" radius={[4,4,0,0]} maxBarSize={40} />
+                              </BarChart>
+                            </ResponsiveContainer>
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-slate-400">ไม่มีข้อมูลธุรกรรมในช่วงเวลานี้</div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Line Chart: Cashflow */}
+                      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                        <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2"><TrendingDown className="w-5 h-5 text-blue-500"/> กระแสเงินสดตามเวลา (เส้น)</h3>
+                        <div className="h-72 w-full text-sm">
+                          {trendData.length > 0 ? (
+                            <ResponsiveContainer width="100%" height="100%">
+                              <LineChart data={trendData}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0"/>
+                                <XAxis dataKey="date" tick={{fill: '#64748b'}} axisLine={false} tickLine={false} />
+                                <YAxis tick={{fill: '#64748b'}} axisLine={false} tickLine={false} tickFormatter={(val)=>`฿${val.toLocaleString()}`}/>
+                                <RechartsTooltip formatter={(value) => `฿${value.toLocaleString()}`} contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}} />
+                                <Legend iconType="circle" wrapperStyle={{paddingTop: '20px'}}/>
+                                <Line type="monotone" dataKey="รายรับ" stroke="#10b981" strokeWidth={3} dot={{r:4, strokeWidth: 2}} activeDot={{r: 6}} />
+                                <Line type="monotone" dataKey="รายจ่าย" stroke="#ef4444" strokeWidth={3} dot={{r:4, strokeWidth: 2}} activeDot={{r: 6}} />
+                              </LineChart>
+                            </ResponsiveContainer>
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-slate-400">ไม่มีข้อมูลธุรกรรมในช่วงเวลานี้</div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Pie Chart: Expense */}
+                      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                        <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2"><Receipt className="w-5 h-5 text-rose-500"/> สัดส่วนรายจ่ายตามหมวดหมู่ (วงกลม)</h3>
+                        <div className="h-72 w-full text-sm">
+                          {expensePieData.length > 0 ? (
+                            <ResponsiveContainer width="100%" height="100%">
+                              <PieChart>
+                                <Pie data={expensePieData} cx="50%" cy="50%" innerRadius={60} outerRadius={90} paddingAngle={5} dataKey="value" stroke="none">
+                                  {expensePieData.map((entry, index) => (
+                                    <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                                  ))}
+                                </Pie>
+                                <RechartsTooltip formatter={(value) => `฿${value.toLocaleString()}`} contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}} />
+                                <Legend layout="vertical" verticalAlign="middle" align="right" iconType="circle" />
+                              </PieChart>
+                            </ResponsiveContainer>
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-slate-400">ไม่มีข้อมูลรายจ่ายในช่วงเวลานี้</div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Pie Chart: Income */}
+                      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                        <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2"><HandHeart className="w-5 h-5 text-emerald-500"/> สัดส่วนรายรับตามแหล่งที่มา (วงกลม)</h3>
+                        <div className="h-72 w-full text-sm">
+                          {incomePieData.length > 0 ? (
+                            <ResponsiveContainer width="100%" height="100%">
+                              <PieChart>
+                                <Pie data={incomePieData} cx="50%" cy="50%" innerRadius={60} outerRadius={90} paddingAngle={5} dataKey="value" stroke="none">
+                                  {incomePieData.map((entry, index) => (
+                                    <Cell key={`cell-${index}`} fill={CHART_COLORS[(index + 2) % CHART_COLORS.length]} />
+                                  ))}
+                                </Pie>
+                                <RechartsTooltip formatter={(value) => `฿${value.toLocaleString()}`} contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}} />
+                                <Legend layout="vertical" verticalAlign="middle" align="right" iconType="circle" />
+                              </PieChart>
+                            </ResponsiveContainer>
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-slate-400">ไม่มีข้อมูลรายรับในช่วงเวลานี้</div>
+                          )}
+                        </div>
+                      </div>
+
                     </div>
                   </div>
                 )}
