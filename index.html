@@ -5,10 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ระบบบัญชีวัดไชยามาตย์ (ERP)</title>
   
-  <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   
-  <!-- Google Fonts: Sarabun -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -19,27 +17,31 @@
       background-color: #f8fafc; 
     }
     
-    /* การตั้งค่าระบบพิมพ์ (Print CSS) ที่สมบูรณ์ */
+    /* === การตั้งค่าระบบพิมพ์ (Print CSS) ที่สมบูรณ์ === */
     @media print {
       @page {
         size: A4;
-        margin: 10mm;
+        margin: 10mm 15mm; /* เพิ่ม margin ด้านข้างเล็กน้อยเพื่อไม่ให้ชิดขอบไป */
       }
       body { 
         -webkit-print-color-adjust: exact; 
         print-color-adjust: exact; 
         background-color: white !important;
       }
-      * {
-        overflow: visible !important;
-      }
-      ::-webkit-scrollbar {
-        display: none !important;
-      }
+      /* จัดการการขึ้นหน้าใหม่ของตาราง */
+      table { page-break-inside: auto; }
+      tr    { page-break-inside: avoid; page-break-after: auto; }
+      thead { display: table-header-group; } /* ให้หัวตารางโชว์ทุกหน้า */
+      tfoot { display: table-footer-group; }
+      
+      * { overflow: visible !important; }
+      ::-webkit-scrollbar { display: none !important; }
+      
+      /* ซ่อน UI ที่ไม่จำเป็นตอนพิมพ์อย่างเด็ดขาด */
+      .no-print { display: none !important; }
     }
   </style>
 
-  <!-- ES Modules Setup -->
   <script type="importmap">
     {
       "imports": {
@@ -54,7 +56,6 @@
     }
   </script>
   
-  <!-- Babel -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 <body>
@@ -228,7 +229,7 @@
       const [showPrintPreview, setShowPrintPreview] = useState(false); 
       const [showLedgerPrint, setShowLedgerPrint] = useState(false); 
       const [showInventoryPrint, setShowInventoryPrint] = useState(false); 
-      const [printTx, setPrintTx] = useState(null); // สำหรับพิมพ์เอกสารขอเบิก/ใบสำคัญรายตัว
+      const [printTx, setPrintTx] = useState(null); 
       const [previewImage, setPreviewImage] = useState(null); 
       const [viewingTx, setViewingTx] = useState(null); 
       const [qrModalVisible, setQrModalVisible] = useState(false);
@@ -265,7 +266,6 @@
       const [txEditForm, setTxEditForm] = useState({ title: '', category: '', amount: '', date: '', detailsUrl: '' });
       const [editForm, setEditForm] = useState({ name: '', price: '', stockAdjustType: 'none', stockAdjustValue: '', reason: '' });
       
-      // State ฟอร์มสร้างใบเบิกเงิน (หลายรายการ)
       const [advanceForm, setAdvanceForm] = useState({ requester: '', objective: '', category: '', items: [{ name: '', qty: 1, price: '' }] });
 
       // ---------------------------------------------------------
@@ -335,7 +335,6 @@
         };
       }, [user]);
 
-      // ตั้งค่าเริ่มต้นของฟอร์มเมื่อโหลดข้อมูลเสร็จ
       useEffect(() => {
         if (incomeCategories.length > 0 && !donationForm.purpose) setDonationForm(prev => ({ ...prev, purpose: incomeCategories[0] }));
       }, [incomeCategories, donationForm.purpose]);
@@ -345,7 +344,6 @@
         if (expenseCategories.length > 0 && !advanceForm.category) setAdvanceForm(prev => ({ ...prev, category: expenseCategories[0] }));
       }, [expenseCategories, expenseForm.category, advanceForm.category]);
 
-      // ระบบฟังการโอนรูปภาพจากมือถือ
       useEffect(() => {
         if (!activeTransferId || !user) return;
         const transferRef = doc(db, 'artifacts', erpAppId, 'public', 'data', 'transfers', activeTransferId);
@@ -565,7 +563,6 @@
 
         await setDoc(doc(db, 'artifacts', erpAppId, 'public', 'data', 'transactions', newTx.id), newTx);
         
-        // ล้างฟอร์ม โชว์แจ้งเตือน เด้งหน้าพิมพ์ และพากลับไปหน้า Approvals
         setAdvanceForm({ requester: '', objective: '', category: expenseCategories[0] || '', items: [{ name: '', qty: 1, price: '' }] });
         showToast('สร้างใบขอเบิกเงินเรียบร้อยแล้ว');
         setPrintTx(newTx); 
@@ -848,7 +845,7 @@
       // Main App Layout
       // =========================================================================
       return (
-        <div className="flex h-screen bg-slate-100 overflow-hidden print:h-auto print:overflow-visible">
+        <div className="flex h-screen bg-slate-100 overflow-hidden print:h-auto print:overflow-visible print:bg-white">
           
           {/* ---------------- Sidebar Navigation (Desktop) ---------------- */}
           <div className="w-64 bg-slate-900 text-slate-300 flex flex-col shadow-xl z-20 hidden md:flex print:hidden shrink-0">
@@ -884,7 +881,6 @@
               
               <div className="pt-4 pb-2 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">ระบบรายจ่าย</div>
               
-              {/* === เพิ่มเมนูสร้างใบเบิกเงิน === */}
               <button onClick={() => setActiveTab('advance')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition ${activeTab === 'advance' ? 'bg-amber-500 text-white font-medium shadow-md' : 'hover:bg-slate-800 hover:text-white'}`}>
                 <FileText className="w-5 h-5" /> ออกใบเบิกเงิน (หลายรายการ)
               </button>
@@ -1112,7 +1108,7 @@
                       <div className="bg-amber-100 p-3 rounded-xl"><ClipboardList className="w-6 h-6 text-amber-600" /></div>
                       <div>
                         <h2 className="text-2xl font-bold text-slate-800">จัดการคำขอเบิกเงิน (Approvals)</h2>
-                        <p className="text-slate-500 text-sm">ตรวจสอบรายการเบิกจ่ายที่ถูกส่งเข้ามาจาก LINE Bot หรือผ่านเว็บเพื่อรออนุมัติ</p>
+                        <p className="text-slate-500 text-sm">ตรวจสอบรายการเบิกจ่ายที่ถูกส่งเข้ามาเพื่อรออนุมัติ</p>
                       </div>
                     </div>
                     
@@ -1171,6 +1167,101 @@
                     </div>
                   </div>
                 )}
+
+                {/* >>>>>>>>>> DAILY REPORT VIEW (รายงานประจำวัน) <<<<<<<<<< */}
+                {activeTab === 'dailyReport' && (() => {
+                  const dailyTransactions = validTransactions.filter(tx => tx.date.startsWith(reportDate));
+                  const dailyIncome = dailyTransactions.filter(t => t.type === 'INCOME').reduce((acc, curr) => acc + curr.amount, 0);
+                  const dailyExpense = dailyTransactions.filter(t => t.type === 'EXPENSE').reduce((acc, curr) => acc + curr.amount, 0);
+
+                  return (
+                  <div className="space-y-6 animate-in fade-in print:p-0">
+                    <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-6 gap-4 print:hidden">
+                      <div className="flex items-center gap-3">
+                        <div className="bg-blue-100 p-3 rounded-xl"><CalendarDays className="w-6 h-6 text-blue-600" /></div>
+                        <div>
+                          <h2 className="text-2xl font-bold text-slate-800">พิมพ์รายงานประจำวัน</h2>
+                          <p className="text-slate-500 text-sm">เลือกวันที่ต้องการสรุปยอด และสั่งพิมพ์รายงาน</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                         <input 
+                            type="date" 
+                            value={reportDate} 
+                            onChange={(e) => setReportDate(e.target.value)} 
+                            className="px-4 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                         />
+                         <button onClick={() => window.print()} className="bg-slate-800 text-white px-4 py-2 rounded-lg hover:bg-slate-700 transition flex items-center gap-2 text-sm font-bold shadow-sm">
+                           <Printer className="w-4 h-4"/> สั่งพิมพ์
+                         </button>
+                      </div>
+                    </div>
+
+                    {/* Report Printable Area */}
+                    <div className="bg-white w-full max-w-[21cm] mx-auto p-10 md:p-14 shadow-sm border border-slate-200 print:shadow-none print:border-none print:p-0">
+                       <div className="text-center mb-8 border-b-2 border-black pb-6">
+                         <h1 className="text-2xl font-bold mb-2 text-slate-900">{generalSettings.templeName}</h1>
+                         <h2 className="text-xl font-bold mb-2">รายงานรับ - จ่าย ประจำวัน</h2>
+                         <p className="text-lg">ประจำวันที่: {new Date(reportDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                       </div>
+
+                       <div className="grid grid-cols-2 gap-4 mb-8 text-center">
+                         <div className="bg-emerald-50 print:bg-transparent border border-emerald-200 print:border-black p-4 rounded-xl print:rounded-none">
+                           <p className="font-semibold text-emerald-800 print:text-black mb-1">รวมรายรับวันนี้</p>
+                           <p className="text-2xl font-bold text-emerald-600 print:text-black">{formatMoney(dailyIncome)}</p>
+                         </div>
+                         <div className="bg-rose-50 print:bg-transparent border border-rose-200 print:border-black p-4 rounded-xl print:rounded-none">
+                           <p className="font-semibold text-rose-800 print:text-black mb-1">รวมรายจ่ายวันนี้</p>
+                           <p className="text-2xl font-bold text-rose-600 print:text-black">{formatMoney(dailyExpense)}</p>
+                         </div>
+                       </div>
+
+                       <table className="w-full text-left text-sm border-collapse border border-black">
+                         <thead>
+                           <tr className="bg-slate-100 print:bg-transparent border-b border-black">
+                             <th className="py-2.5 px-3 font-bold border-r border-black w-24">เวลา</th>
+                             <th className="py-2.5 px-3 font-bold border-r border-black">รายการ</th>
+                             <th className="py-2.5 px-3 font-bold border-r border-black w-32">หมวดหมู่</th>
+                             <th className="py-2.5 px-3 font-bold border-r border-black text-right w-28">รายรับ</th>
+                             <th className="py-2.5 px-3 font-bold text-right w-28">รายจ่าย</th>
+                           </tr>
+                         </thead>
+                         <tbody>
+                           {dailyTransactions.length === 0 ? (
+                             <tr><td colSpan="5" className="py-8 text-center text-slate-500 border-b border-black">ไม่มีข้อมูลธุรกรรมในวันนี้</td></tr>
+                           ) : (
+                             dailyTransactions.map(tx => (
+                               <tr key={tx.id} className="border-b border-slate-300 print:border-black">
+                                 <td className="py-2 px-3 border-r border-slate-300 print:border-black">{tx.date.split(' ')[1]}</td>
+                                 <td className="py-2 px-3 border-r border-slate-300 print:border-black">{tx.title}</td>
+                                 <td className="py-2 px-3 border-r border-slate-300 print:border-black">{tx.category}</td>
+                                 <td className="py-2 px-3 text-right border-r border-slate-300 print:border-black">{tx.type === 'INCOME' ? formatMoney(tx.amount).replace('฿', '').trim() : '-'}</td>
+                                 <td className="py-2 px-3 text-right">{tx.type === 'EXPENSE' ? formatMoney(tx.amount).replace('฿', '').trim() : '-'}</td>
+                               </tr>
+                             ))
+                           )}
+                           <tr className="border-t-2 border-black font-bold">
+                             <td colSpan="3" className="py-3 px-3 text-right border-r border-black">รวมทั้งสิ้น</td>
+                             <td className="py-3 px-3 text-right border-r border-black underline decoration-double">{formatMoney(dailyIncome).replace('฿', '').trim()}</td>
+                             <td className="py-3 px-3 text-right underline decoration-double">{formatMoney(dailyExpense).replace('฿', '').trim()}</td>
+                           </tr>
+                         </tbody>
+                       </table>
+
+                       <div className="mt-20 flex justify-between px-12 text-sm print:break-inside-avoid">
+                         <div className="text-center">
+                           <p className="mb-8">ลงชื่อ.........................................................ผู้จัดทำ</p>
+                           <p>(.........................................................)</p>
+                         </div>
+                         <div className="text-center">
+                           <p className="mb-8">ลงชื่อ.........................................................ผู้ตรวจสอบ</p>
+                           <p>(.........................................................)</p>
+                         </div>
+                       </div>
+                    </div>
+                  </div>
+                  );
+                })()}
 
                 {/* >>>>>>>>>> ADVANCE REQUEST VIEW (สร้างใบเบิกหลายรายการ) <<<<<<<<<< */}
                 {activeTab === 'advance' && (
@@ -1786,7 +1877,7 @@
                     </tbody>
                   </table>
 
-                  <div className="mt-28 flex justify-between px-4 sm:px-8 text-sm text-black">
+                  <div className="mt-28 flex justify-between px-4 sm:px-8 text-sm text-black print:break-inside-avoid">
                     <div className="text-center w-40">
                       <div className="flex items-end justify-center mb-3">
                         <span className="inline-block w-full border-b border-black border-dotted"></span>
@@ -1878,7 +1969,7 @@
                     </tbody>
                   </table>
 
-                  <div className="mt-20 pt-8 flex justify-between px-4 sm:px-12 text-base text-black">
+                  <div className="mt-20 pt-8 flex justify-between px-4 sm:px-12 text-base text-black print:break-inside-avoid">
                     <div className="text-center w-48 sm:w-64">
                       <div className="flex items-end justify-center mb-3">
                         <span className="mr-2 whitespace-nowrap">ลงชื่อ</span>
