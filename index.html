@@ -622,6 +622,8 @@
       // ---------------------------------------------------------
       // Actions Handlers
       // ---------------------------------------------------------
+      const advanceTotal = advanceForm.items.reduce((acc, item) => acc + ((parseInt(item.qty) || 0) * (parseFloat(item.price) || 0)), 0);
+
       const handleAddAdvanceItem = () => {
         setAdvanceForm({ ...advanceForm, items: [...advanceForm.items, { name: '', qty: 1, price: '' }] });
       };
