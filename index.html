@@ -73,7 +73,7 @@
       TrendingUp, TrendingDown, Building2, Landmark, Wallet, AlertCircle, FileText,
       Printer, ExternalLink, CalendarDays, FileSpreadsheet, Edit2, X, QrCode, ShieldCheck,
       Camera, CheckCircle2, Image as ImageIcon, Loader2, ClipboardList, Check, XCircle, Clock,
-      BrainCircuit, Filter, Eye, Link, ChevronRight
+      BrainCircuit, Filter, Eye, Link, ChevronRight, FileCheck2
     } from 'lucide-react';
     
     import { initializeApp } from 'firebase/app';
@@ -238,7 +238,7 @@
       const [viewingTx, setViewingTx] = useState(null); 
       const [qrModalVisible, setQrModalVisible] = useState(false);
       
-      // ตัวแปรเช็คว่ามี Modal สั่งพิมพ์เปิดอยู่หรือไม่ (เพื่อซ่อนพื้นหลังป้องกันการพิมพ์ซ้อน)
+      // ตัวแปรเช็คว่ามี Modal สั่งพิมพ์เปิดอยู่หรือไม่
       const isPrintModalOpen = !!printTx || showInventoryPrint || showLedgerPrint;
       
       // Edit Modals
@@ -265,7 +265,8 @@
 
       // Form States
       const [donationForm, setDonationForm] = useState({ title: '', purpose: '', amount: '', detailsUrl: '' });
-      const [expenseForm, setExpenseForm] = useState({ title: '', category: '', amount: '', payee: '', detailsUrl: '', isPending: false });
+      const [advanceForm, setAdvanceForm] = useState({ requester: '', objective: '', category: '', items: [{ name: '', qty: 1, price: '' }] });
+      const [clearanceForm, setClearanceForm] = useState({ id: null, actualAmount: '', detailsUrl: '' }); // ฟอร์มสำหรับเคลียร์บิล
       const [countForm, setCountForm] = useState({ itemId: '', actualRemaining: '' });
       const [newItemForm, setNewItemForm] = useState({ name: '', category: 'พระเครื่อง', price: '', stock: '', cost: '' });
       const [newIncomeCat, setNewIncomeCat] = useState('');
@@ -273,8 +274,6 @@
       const [txEditForm, setTxEditForm] = useState({ title: '', category: '', amount: '', date: '', detailsUrl: '' });
       const [editForm, setEditForm] = useState({ name: '', price: '', stockAdjustType: 'none', stockAdjustValue: '', reason: '' });
       
-      const [advanceForm, setAdvanceForm] = useState({ requester: '', objective: '', category: '', items: [{ name: '', qty: 1, price: '' }] });
-
       // ---------------------------------------------------------
       // Firebase Initialization & Sync
       // ---------------------------------------------------------
@@ -347,9 +346,8 @@
       }, [incomeCategories, donationForm.purpose]);
 
       useEffect(() => {
-        if (expenseCategories.length > 0 && !expenseForm.category) setExpenseForm(prev => ({ ...prev, category: expenseCategories[0] }));
         if (expenseCategories.length > 0 && !advanceForm.category) setAdvanceForm(prev => ({ ...prev, category: expenseCategories[0] }));
-      }, [expenseCategories, expenseForm.category, advanceForm.category]);
+      }, [expenseCategories, advanceForm.category]);
 
       useEffect(() => {
         if (!activeTransferId || !user) return;
@@ -362,7 +360,7 @@
               const appendUrl = (prevUrl) => prevUrl ? prevUrl + ',' + data.imageData : data.imageData;
 
               if (qrContext === 'donation') setDonationForm(prev => ({ ...prev, detailsUrl: appendUrl(prev.detailsUrl) }));
-              else if (qrContext === 'expense') setExpenseForm(prev => ({ ...prev, detailsUrl: appendUrl(prev.detailsUrl) }));
+              else if (qrContext === 'clearance') setClearanceForm(prev => ({ ...prev, detailsUrl: appendUrl(prev.detailsUrl) }));
               else if (qrContext === 'txEdit') setTxEditForm(prev => ({ ...prev, detailsUrl: appendUrl(prev.detailsUrl) }));
               
               showToast('รับรูปภาพจากมือถือสำเร็จ');
@@ -407,8 +405,15 @@
       // ---------------------------------------------------------
       // Calculations & Variables
       // ---------------------------------------------------------
-      const validTransactions = transactions.filter(t => t.status === 'APPROVED' || !t.status);
+      // รายการที่สมบูรณ์แล้ว คือ รายรับที่อนุมัติแล้ว และ รายจ่ายที่เคลียร์บิลแล้ว (รวมถึงรายจ่ายเดิมที่เป็น APPROVED)
+      const validTransactions = transactions.filter(t => {
+        if (t.type === 'INCOME') return t.status === 'APPROVED' || !t.status;
+        if (t.type === 'EXPENSE') return t.status === 'CLEARED' || t.status === 'APPROVED' || !t.status;
+        return false;
+      });
+      
       const pendingTransactions = transactions.filter(t => t.status === 'PENDING');
+      const waitingClearanceTxs = transactions.filter(t => t.status === 'WAITING_CLEARANCE');
       
       const totalIncome = validTransactions.filter(t => t.type === 'INCOME').reduce((acc, curr) => acc + curr.amount, 0);
       const totalExpense = validTransactions.filter(t => t.type === 'EXPENSE').reduce((acc, curr) => acc + curr.amount, 0);
@@ -551,7 +556,7 @@
 
       const handleAdvanceSubmit = async (e) => {
         e.preventDefault();
-        if (advanceForm.items.length === 0 || advanceTotal <= 0) return alert('กรุณาเพิ่มรายการและระบุราคาให้ถูกต้อง');
+        if (advanceForm.items.length === 0 || advanceTotal <= 0) return alert('กรุณาเพิ่มรายการและระบุราคาประเมินให้ถูกต้อง');
         if (!user) return;
         
         const newTx = {
@@ -571,7 +576,7 @@
         await setDoc(doc(db, 'artifacts', erpAppId, 'public', 'data', 'transactions', newTx.id), newTx);
         
         setAdvanceForm({ requester: '', objective: '', category: expenseCategories[0] || '', items: [{ name: '', qty: 1, price: '' }] });
-        showToast('สร้างใบขอเบิกเงินเรียบร้อยแล้ว');
+        showToast('สร้างใบขอเบิกเงินเรียบร้อยแล้ว (รออนุมัติ)');
         setPrintTx(newTx); 
         setActiveTab('approvals');
       };
@@ -593,20 +598,22 @@
         showToast('บันทึกยอดรวมสำเร็จ');
       };
 
-      const handleExpenseSubmit = async (e) => {
+      // ฟอร์มเคลียร์บิลและตัดบัญชี (ใหม่)
+      const handleClearanceSubmit = async (e) => {
         e.preventDefault();
-        if (!expenseForm.amount || !expenseForm.title || !user) return;
+        if (!clearanceForm.actualAmount || !clearanceForm.id || !user) return;
+        if (!clearanceForm.detailsUrl) {
+           if (!window.confirm('คุณยังไม่ได้แนบรูปใบเสร็จ ยืนยันที่จะตัดบัญชีโดยไม่มีใบเสร็จหรือไม่?')) return;
+        }
+
+        await setDoc(doc(db, 'artifacts', erpAppId, 'public', 'data', 'transactions', clearanceForm.id), {
+            amount: parseFloat(clearanceForm.actualAmount),
+            detailsUrl: clearanceForm.detailsUrl,
+            status: 'CLEARED'
+        }, { merge: true });
         
-        const reqStatus = expenseForm.isPending ? 'PENDING' : 'APPROVED';
-        const prefix = expenseForm.isPending ? 'REQ' : 'EXP';
-        const newTx = {
-          id: generateRef('TX'), date: getFormatDate(), type: 'EXPENSE', category: expenseForm.category, 
-          title: `${expenseForm.title} (ผู้รับ: ${expenseForm.payee || 'ไม่ระบุ'})`, amount: parseFloat(expenseForm.amount), 
-          refId: generateRef(prefix), detailsUrl: expenseForm.detailsUrl, status: reqStatus, requester: 'เจ้าหน้าที่บัญชี (ผ่านระบบ)'
-        };
-        await setDoc(doc(db, 'artifacts', erpAppId, 'public', 'data', 'transactions', newTx.id), newTx);
-        setExpenseForm({ title: '', category: expenseCategories[0] || '', amount: '', payee: '', detailsUrl: '', isPending: false });
-        showToast(reqStatus === 'PENDING' ? 'สร้างคำขอเบิกเงิน (รออนุมัติ) เรียบร้อย' : 'บันทึกรายจ่ายตัดยอดทันทีเรียบร้อย');
+        setClearanceForm({ id: null, actualAmount: '', detailsUrl: '' });
+        showToast('ตัดบัญชีและบันทึกใบเสร็จเรียบร้อยแล้ว');
       };
       
       const handleDeleteTransaction = async (txId) => {
@@ -657,8 +664,9 @@
 
       const handleApproveRequest = async (txId) => {
         if (!user) return;
-        await setDoc(doc(db, 'artifacts', erpAppId, 'public', 'data', 'transactions', txId), { status: 'APPROVED' }, { merge: true });
-        showToast('อนุมัติรายการเบิกจ่ายเรียบร้อย');
+        // เปลี่ยนจาก APPROVED เป็น WAITING_CLEARANCE (รอเคลียร์บิล)
+        await setDoc(doc(db, 'artifacts', erpAppId, 'public', 'data', 'transactions', txId), { status: 'WAITING_CLEARANCE' }, { merge: true });
+        showToast('อนุมัติให้เบิกเงินเรียบร้อย (รายการนี้ถูกย้ายไปที่เมนูรอเคลียร์บิล)');
       };
 
       const handleRejectRequest = async (txId) => {
@@ -888,12 +896,13 @@
               
               <div className="pt-4 pb-2 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">ระบบรายจ่าย</div>
               
-              <button onClick={() => setActiveTab('advance')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition ${activeTab === 'advance' ? 'bg-amber-500 text-white font-medium shadow-md' : 'hover:bg-slate-800 hover:text-white'}`}>
-                <FileText className="w-5 h-5" /> ออกใบเบิกเงิน (หลายรายการ)
+              {/* เปลี่ยน Flow การทำงานส่วนรายจ่ายใหม่ทั้งหมด */}
+              <button onClick={() => setActiveTab('expense')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition ${activeTab === 'expense' ? 'bg-amber-500 text-white font-medium shadow-md' : 'hover:bg-slate-800 hover:text-white'}`}>
+                <FileText className="w-5 h-5" /> สร้างคำขอเบิกเงิน
               </button>
-
-              <button onClick={() => setActiveTab('expense')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition ${activeTab === 'expense' ? 'bg-rose-600 text-white font-medium shadow-md' : 'hover:bg-slate-800 hover:text-white'}`}>
-                <Receipt className="w-5 h-5" /> บันทึกเบิกจ่าย (รายการเดียว)
+              <button onClick={() => setActiveTab('clearance')} className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition ${activeTab === 'clearance' ? 'bg-rose-600 text-white font-medium shadow-md' : 'hover:bg-slate-800 hover:text-white'}`}>
+                <div className="flex items-center gap-3"><Receipt className="w-5 h-5" /> เคลียร์บิล / ตัดบัญชี</div>
+                {waitingClearanceTxs.length > 0 && <span className="bg-rose-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">{waitingClearanceTxs.length}</span>}
               </button>
               
               <div className="pt-4 pb-2 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">บัญชีรวม & ตั้งค่า</div>
@@ -922,8 +931,8 @@
                 <option value="dailyReport">รายงานประจำวัน</option>
                 <option value="donation">รับบริจาค</option>
                 <option value="inventory">คลังสินค้า</option>
-                <option value="advance">ออกใบเบิกเงิน</option>
-                <option value="expense">เบิกจ่าย</option>
+                <option value="expense">สร้างคำขอเบิกเงิน</option>
+                <option value="clearance">เคลียร์บิล / ตัดบัญชี ({waitingClearanceTxs.length})</option>
                 <option value="ledger">สมุดรายวัน</option>
                 <option value="admin">ตั้งค่า</option>
               </select>
@@ -970,6 +979,19 @@
                         <ChevronRight className="w-5 h-5 text-amber-600" />
                       </div>
                     )}
+                    
+                    {waitingClearanceTxs.length > 0 && (
+                      <div className="bg-rose-50 border-l-4 border-rose-500 p-4 rounded-r-xl flex justify-between items-center cursor-pointer hover:bg-rose-100 transition mt-4" onClick={() => setActiveTab('clearance')}>
+                        <div className="flex items-center gap-3">
+                          <Receipt className="w-6 h-6 text-rose-600" />
+                          <div>
+                            <h4 className="font-bold text-rose-800">รอเคลียร์บิล / ตัดยอดบัญชีรายจ่าย {waitingClearanceTxs.length} รายการ</h4>
+                            <p className="text-sm text-rose-700">อนุมัติจ่ายเงินไปแล้ว กรุณาแนบใบเสร็จเพื่อลงสมุดรายวัน</p>
+                          </div>
+                        </div>
+                        <ChevronRight className="w-5 h-5 text-rose-600" />
+                      </div>
+                    )}
 
                     {/* AI Insights Card */}
                     <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-6 md:p-8 rounded-2xl border border-blue-100 shadow-sm">
@@ -996,7 +1018,7 @@
                         <h3 className="text-2xl font-bold text-emerald-600">{formatMoney(dashIncome)}</h3>
                       </div>
                       <div className="bg-white border rounded-2xl p-6 shadow-sm">
-                        <p className="text-slate-500 text-sm font-medium mb-2">รวมรายจ่าย (อนุมัติแล้ว)</p>
+                        <p className="text-slate-500 text-sm font-medium mb-2">รวมรายจ่าย (เคลียร์บิลแล้ว)</p>
                         <h3 className="text-2xl font-bold text-rose-600">{formatMoney(dashExpense)}</h3>
                       </div>
                       <div className="bg-white border rounded-2xl p-6 shadow-sm overflow-hidden">
@@ -1116,7 +1138,7 @@
                       <div className="bg-amber-100 p-3 rounded-xl"><ClipboardList className="w-6 h-6 text-amber-600" /></div>
                       <div>
                         <h2 className="text-2xl font-bold text-slate-800">จัดการคำขอเบิกเงิน (Approvals)</h2>
-                        <p className="text-slate-500 text-sm">ตรวจสอบรายการเบิกจ่ายที่ถูกส่งเข้ามาเพื่อรออนุมัติ</p>
+                        <p className="text-slate-500 text-sm">อนุมัติคำขอเบิกเงินเพื่อนำเงินสดไปใช้จ่าย (หลังอนุมัติรายการจะย้ายไปที่เมนู "เคลียร์บิล")</p>
                       </div>
                     </div>
                     
@@ -1125,7 +1147,6 @@
                          <div className="bg-white p-12 text-center rounded-2xl border border-slate-200">
                             <CheckCircle2 className="w-16 h-16 text-slate-300 mx-auto mb-4" />
                             <h3 className="text-lg font-bold text-slate-500">ไม่มีคำขอรออนุมัติ</h3>
-                            <p className="text-slate-400 mt-1">ยอดเยี่ยมมาก! คุณจัดการทุกรายการเสร็จสิ้นแล้ว</p>
                          </div>
                       ) : (
                         pendingTransactions.map(tx => {
@@ -1135,7 +1156,7 @@
                               <div className="flex-1 space-y-3 w-full">
                                 <div className="flex justify-between items-start">
                                   <div>
-                                    <span className="text-xs font-bold bg-amber-100 text-amber-800 px-2 py-1 rounded mb-2 inline-block">สถานะ: รออนุมัติ</span>
+                                    <span className="text-xs font-bold bg-amber-100 text-amber-800 px-2 py-1 rounded mb-2 inline-block">สถานะ: รออนุมัติให้ยืม/เบิก</span>
                                     <h3 className="text-lg font-bold text-slate-800">{tx.title}</h3>
                                   </div>
                                   <h3 className="text-2xl font-bold text-rose-600">{formatMoney(tx.amount)}</h3>
@@ -1143,7 +1164,7 @@
                                 
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100 text-sm">
                                   <div><p className="text-slate-400 text-xs font-semibold mb-1">รหัสเอกสาร</p><p className="font-mono">{tx.refId || tx.id}</p></div>
-                                  <div><p className="text-slate-400 text-xs font-semibold mb-1">วัน/เวลา</p><p>{tx.date}</p></div>
+                                  <div><p className="text-slate-400 text-xs font-semibold mb-1">วัน/เวลาที่ขอ</p><p>{tx.date}</p></div>
                                   <div><p className="text-slate-400 text-xs font-semibold mb-1">หมวดหมู่</p><p>{tx.category}</p></div>
                                   <div><p className="text-slate-400 text-xs font-semibold mb-1">ผู้ขอเบิก</p><p>{tx.requester || 'ไม่ระบุ'}</p></div>
                                 </div>
@@ -1153,7 +1174,7 @@
                                     onClick={() => setViewingTx(tx)} 
                                     className="text-blue-600 bg-blue-50 px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 hover:bg-blue-100 transition w-full md:w-auto justify-center shadow-sm"
                                   >
-                                    <Eye className="w-5 h-5"/> ดูรายละเอียด {urls.length > 0 && `(${urls.length} รูป)`}
+                                    <Eye className="w-5 h-5"/> ดูรายละเอียด
                                   </button>
                                   <button 
                                     onClick={() => setPrintTx(tx)} 
@@ -1165,7 +1186,7 @@
                               </div>
                               
                               <div className="flex flex-col gap-3 w-full md:w-48 shrink-0">
-                                <button onClick={() => handleApproveRequest(tx.id)} className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition shadow-sm"><Check className="w-5 h-5"/> อนุมัติเบิกจ่าย</button>
+                                <button onClick={() => handleApproveRequest(tx.id)} className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition shadow-sm"><Check className="w-5 h-5"/> อนุมัติให้เบิกเงิน</button>
                                 <button onClick={() => handleRejectRequest(tx.id)} className="bg-white border-2 border-rose-200 text-rose-600 hover:bg-rose-50 font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition"><XCircle className="w-5 h-5"/> ไม่อนุมัติ</button>
                               </div>
                             </div>
@@ -1281,14 +1302,14 @@
                   );
                 })()}
 
-                {/* >>>>>>>>>> ADVANCE REQUEST VIEW (สร้างใบเบิกหลายรายการ) <<<<<<<<<< */}
-                {activeTab === 'advance' && (
+                {/* >>>>>>>>>> ADVANCE REQUEST VIEW (สร้างใบขอเบิกแบบมีรายการย่อย) <<<<<<<<<< */}
+                {activeTab === 'expense' && (
                   <div className="space-y-6 animate-in fade-in">
                     <div className="flex items-center gap-3 mb-6">
                       <div className="bg-amber-100 p-3 rounded-xl"><FileText className="w-6 h-6 text-amber-600" /></div>
                       <div>
-                        <h2 className="text-2xl font-bold text-slate-800">สร้างใบขอเบิกเงิน (Advance Request)</h2>
-                        <p className="text-slate-500 text-sm">ชี้แจงรายการที่ต้องการเบิก และระบุราคาประมาณการ เพื่อขออนุมัติ</p>
+                        <h2 className="text-2xl font-bold text-slate-800">สร้างคำขอเบิกเงิน (Request Advance)</h2>
+                        <p className="text-slate-500 text-sm">ระบุรายการที่ต้องการขอเบิกแบบละเอียดหลายรายการ และระบุราคาประมาณการต่อหน่วย</p>
                       </div>
                     </div>
                     <div className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-slate-200 max-w-4xl">
@@ -1296,7 +1317,7 @@
                         
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div>
-                            <label className="block text-sm font-semibold mb-2">ผู้ขอเบิก (Requester)</label>
+                            <label className="block text-sm font-semibold mb-2">ผู้ขอเบิก (ผู้รับเงิน)</label>
                             <input required type="text" value={advanceForm.requester} onChange={e=>setAdvanceForm({...advanceForm, requester: e.target.value})} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none" placeholder="ชื่อผู้เบิก / หน่วยงาน"/>
                           </div>
                           <div>
@@ -1327,7 +1348,7 @@
                                       <input required type="number" min="1" placeholder="จำนวน" value={item.qty} onChange={e=>handleAdvanceItemChange(idx, 'qty', e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none"/>
                                   </div>
                                   <div className="w-full sm:w-1/4">
-                                      <input required type="number" min="0" placeholder="ราคา/หน่วย" value={item.price} onChange={e=>handleAdvanceItemChange(idx, 'price', e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none"/>
+                                      <input required type="number" min="0" placeholder="ราคาประเมิน/หน่วย" value={item.price} onChange={e=>handleAdvanceItemChange(idx, 'price', e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none"/>
                                   </div>
                                   <div className="w-full sm:w-auto">
                                       <button type="button" onClick={()=>handleRemoveAdvanceItem(idx)} disabled={advanceForm.items.length === 1} className="p-2 text-rose-500 hover:bg-rose-50 border border-transparent hover:border-rose-200 rounded-lg disabled:opacity-50 transition"><Trash2 className="w-5 h-5"/></button>
@@ -1336,15 +1357,103 @@
                             ))}
                           </div>
                           <div className="bg-slate-50 px-5 py-4 border-t border-slate-200 flex justify-between items-center">
-                            <span className="font-bold text-slate-700">รวมยอดเงินประมาณการทั้งสิ้น:</span>
+                            <span className="font-bold text-slate-700">รวมรายการประมาณการทั้งสิ้น:</span>
                             <span className="text-2xl font-bold text-rose-600">{formatMoney(advanceTotal)}</span>
                           </div>
                         </div>
 
                         <button type="submit" className="w-full bg-amber-500 text-white font-bold py-4 rounded-xl hover:bg-amber-600 flex items-center justify-center gap-2 shadow-sm transition">
-                          <Save className="w-5 h-5"/> บันทึกและพิมพ์ใบขอเบิกเงิน (รออนุมัติ)
+                          <FileCheck2 className="w-5 h-5"/> บันทึกและพิมพ์ใบขอเบิกเงิน (ส่งให้กรรมการอนุมัติ)
                         </button>
                       </form>
+                    </div>
+                  </div>
+                )}
+                
+                {/* >>>>>>>>>> CLEARANCE VIEW (เคลียร์บิล / ตัดบัญชี) <<<<<<<<<< */}
+                {activeTab === 'clearance' && (
+                  <div className="space-y-6 animate-in fade-in">
+                    <div className="flex items-center gap-3 mb-6">
+                      <div className="bg-rose-100 p-3 rounded-xl"><Receipt className="w-6 h-6 text-rose-600" /></div>
+                      <div>
+                        <h2 className="text-2xl font-bold text-slate-800">เคลียร์บิล / ตัดบัญชี (Clearance)</h2>
+                        <p className="text-slate-500 text-sm">รายการที่อนุมัติให้เบิกเงินไปแล้ว กรุณากรอกยอดใช้จ่ายจริงและแนบใบเสร็จเพื่อตัดบัญชี</p>
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-4">
+                      {waitingClearanceTxs.length === 0 ? (
+                         <div className="bg-white p-12 text-center rounded-2xl border border-slate-200">
+                            <CheckCircle2 className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                            <h3 className="text-lg font-bold text-slate-500">ไม่มีรายการรอเคลียร์บิล</h3>
+                            <p className="text-slate-400 mt-1">รายการเบิกจ่ายทั้งหมดถูกเคลียร์และลงสมุดบัญชีเรียบร้อยแล้ว</p>
+                         </div>
+                      ) : (
+                        waitingClearanceTxs.map(tx => {
+                          const isEditingThis = clearanceForm.id === tx.id;
+                          return (
+                            <div key={tx.id} className={`bg-white p-6 rounded-2xl shadow-sm border transition-all ${isEditingThis ? 'border-rose-500 ring-4 ring-rose-50' : 'border-rose-200'}`}>
+                              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                                <div className="flex-1 w-full">
+                                  <span className="text-xs font-bold bg-indigo-100 text-indigo-800 px-2 py-1 rounded mb-2 inline-block">รหัสเอกสาร: {tx.refId || tx.id}</span>
+                                  <h3 className="text-lg font-bold text-slate-800 mb-1">{tx.title}</h3>
+                                  <p className="text-sm text-slate-500 mb-2">ผู้เบิก: {tx.requester || 'ไม่ระบุ'} | หมวดหมู่: {tx.category}</p>
+                                  <p className="text-rose-600 font-medium">ยอดเงินที่ขอเบิกไป (ประมาณการ): <span className="font-bold text-xl">{formatMoney(tx.amount)}</span></p>
+                                </div>
+                                
+                                {!isEditingThis && (
+                                  <div className="flex flex-col gap-2 w-full md:w-48 shrink-0">
+                                    <button onClick={() => {
+                                      setClearanceForm({ id: tx.id, actualAmount: tx.amount, detailsUrl: '' }); // Set default actual to requested amount
+                                      setQrContext('clearance');
+                                    }} className="bg-rose-600 hover:bg-rose-700 text-white font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition shadow-sm"><Receipt className="w-5 h-5"/> ทำการเคลียร์บิล</button>
+                                  </div>
+                                )}
+                              </div>
+                              
+                              {/* ฟอร์มกรอกยอดจริงและแนบใบเสร็จ */}
+                              {isEditingThis && (
+                                <div className="mt-6 pt-6 border-t border-slate-200 animate-in slide-in-from-top-4">
+                                  <form onSubmit={handleClearanceSubmit} className="space-y-6">
+                                    <div className="bg-rose-50 p-6 rounded-xl border border-rose-100">
+                                      <label className="block text-sm font-semibold text-rose-800 mb-3">สรุปยอดที่ใช้จ่ายไปจริง (บาท)</label>
+                                      <div className="flex items-center gap-4">
+                                        <input 
+                                          required 
+                                          type="number" 
+                                          min="0" 
+                                          step="0.01"
+                                          value={clearanceForm.actualAmount} 
+                                          onChange={e=>setClearanceForm({...clearanceForm, actualAmount: e.target.value})} 
+                                          className="w-full md:w-1/2 px-4 py-4 bg-white border-2 border-rose-300 rounded-xl focus:ring-2 focus:ring-rose-500 outline-none text-rose-700 font-bold text-2xl" 
+                                          placeholder="กรอกยอดใช้จ่ายจริง..."
+                                        />
+                                        <div className="hidden md:block flex-1">
+                                          {parseFloat(clearanceForm.actualAmount) < tx.amount && clearanceForm.actualAmount !== '' && (
+                                            <p className="text-emerald-600 font-bold bg-emerald-50 px-4 py-2 rounded-lg inline-block">
+                                              ต้องมีเงินทอนคืน: {formatMoney(tx.amount - parseFloat(clearanceForm.actualAmount))}
+                                            </p>
+                                          )}
+                                        </div>
+                                      </div>
+                                      <p className="text-xs text-rose-600 mt-2">* ยอดนี้คือยอดที่จะถูกนำไปบันทึกเป็น "รายจ่ายจริง" ในสมุดรายวัน</p>
+                                    </div>
+                                    
+                                    {renderImageUploadField(clearanceForm, setClearanceForm, 'clearance')}
+                                    
+                                    <div className="flex gap-3 pt-2">
+                                      <button type="button" onClick={() => setClearanceForm({ id: null, actualAmount: '', detailsUrl: '' })} className="w-1/3 bg-white border border-slate-300 text-slate-600 font-bold py-4 rounded-xl hover:bg-slate-50 transition">ยกเลิก</button>
+                                      <button type="submit" className="w-2/3 bg-emerald-600 text-white font-bold py-4 rounded-xl hover:bg-emerald-700 flex items-center justify-center gap-2 shadow-sm transition">
+                                        <Save className="w-5 h-5"/> บันทึกเป็นรายจ่าย (ลงสมุดรายวัน)
+                                      </button>
+                                    </div>
+                                  </form>
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })
+                      )}
                     </div>
                   </div>
                 )}
@@ -1380,62 +1489,6 @@
                         </div>
                         <button type="submit" className="w-full bg-emerald-600 text-white font-bold py-4 rounded-xl hover:bg-emerald-700 flex items-center justify-center gap-2 shadow-sm">
                           <Save className="w-5 h-5"/> บันทึกยอดรับ
-                        </button>
-                      </form>
-                    </div>
-                  </div>
-                )}
-
-                {/* >>>>>>>>>> EXPENSE VIEW <<<<<<<<<< */}
-                {activeTab === 'expense' && (
-                  <div className="space-y-6 animate-in fade-in">
-                    <div className="flex items-center gap-3 mb-6">
-                      <div className="bg-rose-100 p-3 rounded-xl"><Receipt className="w-6 h-6 text-rose-600" /></div>
-                      <div>
-                        <h2 className="text-2xl font-bold text-slate-800">ระบบเบิกจ่าย (Expenses)</h2>
-                        <p className="text-slate-500 text-sm">จัดการค่าใช้จ่าย ส่งคำขอหรือตัดยอด (แนบหลักฐานได้หลายรูป)</p>
-                      </div>
-                    </div>
-                    <div className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border max-w-2xl">
-                      <form onSubmit={handleExpenseSubmit} className="space-y-6">
-                        <div>
-                          <label className="block text-sm font-semibold mb-2">รูปแบบการเบิกจ่าย</label>
-                          <div className="flex gap-4 bg-slate-50 p-3 rounded-xl border border-slate-200">
-                            <label className="flex-1 flex items-center justify-center gap-2 cursor-pointer bg-white p-3 rounded-lg border shadow-sm">
-                              <input type="radio" name="expenseType" checked={!expenseForm.isPending} onChange={() => setExpenseForm({...expenseForm, isPending: false})} className="w-4 h-4 text-rose-600 focus:ring-rose-500"/> 
-                              <span className="font-bold text-slate-700">ตัดยอดบัญชีทันที</span>
-                            </label>
-                            <label className="flex-1 flex items-center justify-center gap-2 cursor-pointer bg-white p-3 rounded-lg border shadow-sm">
-                              <input type="radio" name="expenseType" checked={expenseForm.isPending} onChange={() => setExpenseForm({...expenseForm, isPending: true})} className="w-4 h-4 text-amber-600 focus:ring-amber-500"/> 
-                              <span className="font-bold text-amber-700">ส่งเป็นคำขอรออนุมัติ</span>
-                            </label>
-                          </div>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-semibold mb-2">รายการเบิกจ่าย</label>
-                          <input required type="text" value={expenseForm.title} onChange={e=>setExpenseForm({...expenseForm, title: e.target.value})} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-rose-500 outline-none" placeholder="เช่น ค่าวัสดุอุปกรณ์ทำความสะอาด"/>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-sm font-semibold mb-2">หมวดหมู่ค่าใช้จ่าย</label>
-                            <select value={expenseForm.category} onChange={e=>setExpenseForm({...expenseForm, category: e.target.value})} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-rose-500">
-                              {expenseCategories.map((cat, idx) => <option key={idx} value={cat}>{cat}</option>)}
-                            </select>
-                          </div>
-                          <div>
-                            <label className="block text-sm font-semibold mb-2">ผู้รับเงิน (Payee)</label>
-                            <input type="text" value={expenseForm.payee} onChange={e=>setExpenseForm({...expenseForm, payee: e.target.value})} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-rose-500" placeholder="ชื่อร้าน หรือ บุคคล"/>
-                          </div>
-                        </div>
-                        
-                        {renderImageUploadField(expenseForm, setExpenseForm, 'expense')}
-                        
-                        <div>
-                          <label className="block text-sm font-semibold mb-2">จำนวนเงิน (บาท)</label>
-                          <input required type="number" min="1" value={expenseForm.amount} onChange={e=>setExpenseForm({...expenseForm, amount: e.target.value})} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-rose-500 outline-none text-rose-600 font-bold text-xl" placeholder="0.00"/>
-                        </div>
-                        <button type="submit" className={`w-full text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 shadow-sm transition ${expenseForm.isPending ? 'bg-amber-500 hover:bg-amber-600' : 'bg-rose-600 hover:bg-rose-700'}`}>
-                          <Save className="w-5 h-5"/> {expenseForm.isPending ? 'สร้างคำขอเบิกเงิน' : 'บันทึกตัดบัญชีเบิกจ่าย'}
                         </button>
                       </form>
                     </div>
@@ -1636,7 +1689,7 @@
                           <div className="bg-slate-800 p-3 rounded-xl"><BookOpen className="w-6 h-6 text-white" /></div>
                           <div>
                             <h2 className="text-2xl font-bold text-slate-800">สมุดรายวันทั่วไป (General Ledger)</h2>
-                            <p className="text-slate-500 text-sm">บันทึกประวัติธุรกรรมที่ "อนุมัติแล้ว" ทั้งหมด ขาเข้าและขาออก</p>
+                            <p className="text-slate-500 text-sm">แสดงเฉพาะรายการที่เสร็จสมบูรณ์ (รับเงินแล้ว หรือ เคลียร์บิลค่าใช้จ่ายแล้ว)</p>
                           </div>
                         </div>
                         <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
@@ -1838,15 +1891,15 @@
 
                   <div className="text-center mb-8">
                     <h1 className="text-2xl font-bold mb-2">
-                      {printTx.type === 'INCOME' ? 'ใบสำคัญรับเงิน' : (printTx.status === 'PENDING' ? 'ใบขออนุมัติเบิกจ่ายเงิน / ใบประมาณการค่าใช้จ่าย' : 'ใบสำคัญจ่ายเงิน')}
+                      {printTx.type === 'INCOME' ? 'ใบสำคัญรับเงิน' : (printTx.status === 'CLEARED' ? 'ใบสำคัญจ่ายเงิน' : 'ใบขออนุมัติเบิกจ่ายเงิน (ประมาณการ)')}
                     </h1>
                   </div>
 
                   <div className="flex justify-between mb-6 text-base">
                     <div className="space-y-1">
-                      <p><strong>ผู้ทำรายการ / ขอเบิก:</strong> <span className="underline decoration-dotted">{printTx.requester || 'เจ้าหน้าที่บัญชี'}</span></p>
-                      {printTx.payee && <p><strong>ผู้รับเงิน:</strong> <span className="underline decoration-dotted">{printTx.payee}</span></p>}
-                      {printTx.subItems && <p><strong>วัตถุประสงค์:</strong> <span className="underline decoration-dotted">{printTx.title}</span></p>}
+                      <p><strong>ผู้ขอเบิก (ผู้รับเงิน):</strong> <span className="underline decoration-dotted">{printTx.requester || 'เจ้าหน้าที่บัญชี'}</span></p>
+                      {printTx.payee && <p><strong>ผู้รับเงิน (Payee):</strong> <span className="underline decoration-dotted">{printTx.payee}</span></p>}
+                      <p><strong>วัตถุประสงค์:</strong> <span className="underline decoration-dotted">{printTx.title}</span></p>
                     </div>
                     <div className="text-right space-y-1">
                       <p><strong>เลขที่เอกสาร:</strong> {printTx.refId || printTx.id}</p>
@@ -1889,7 +1942,9 @@
                         </tr>
                       )}
                       <tr className="bg-slate-50 print:bg-transparent font-bold border-t-2 border-black">
-                        <td colSpan={printTx.subItems ? 4 : 3} className="py-4 px-4 text-right text-base border-r border-black">รวมเงินทั้งสิ้น</td>
+                        <td colSpan={printTx.subItems ? 4 : 3} className="py-4 px-4 text-right text-base border-r border-black">
+                          รวมเงินทั้งสิ้น
+                        </td>
                         <td className="py-4 px-4 text-right text-base underline decoration-double">{formatMoney(printTx.amount).replace('฿', '').trim()}</td>
                       </tr>
                     </tbody>
@@ -1916,7 +1971,7 @@
                       <div className="flex items-end justify-center mb-3">
                         <span className="inline-block w-full border-b border-black border-dotted"></span>
                       </div>
-                      <p className="font-semibold mt-2">ผู้อนุมัติ</p>
+                      <p className="font-semibold mt-2">ผู้อนุมัติการเบิก (ผู้จ่ายเงิน)</p>
                       <p className="mt-1 text-xs">วันที่ ......../......../........</p>
                     </div>
                   </div>
@@ -2120,8 +2175,12 @@
                   <div className="grid grid-cols-2 gap-y-6 gap-x-4 bg-slate-50 p-6 rounded-2xl border border-slate-100 mb-8">
                     <div><p className="text-sm text-slate-400 font-medium mb-1">วัน/เวลาที่ทำรายการ</p><p className="font-semibold text-slate-800">{viewingTx.date}</p></div>
                     <div><p className="text-sm text-slate-400 font-medium mb-1">หมวดหมู่</p><p className="font-semibold text-slate-800">{viewingTx.category}</p></div>
-                    <div><p className="text-sm text-slate-400 font-medium mb-1">ผู้ทำรายการ</p><p className="font-semibold text-slate-800">{viewingTx.requester || 'เจ้าหน้าที่บัญชี'}</p></div>
-                    <div><p className="text-sm text-slate-400 font-medium mb-1">สถานะ</p><p className={`font-semibold ${viewingTx.status === 'PENDING' ? 'text-amber-600' : 'text-emerald-600'}`}>{viewingTx.status === 'PENDING' ? 'รออนุมัติ' : 'อนุมัติแล้ว'}</p></div>
+                    <div><p className="text-sm text-slate-400 font-medium mb-1">ผู้ขอเบิก</p><p className="font-semibold text-slate-800">{viewingTx.requester || 'เจ้าหน้าที่บัญชี'}</p></div>
+                    <div><p className="text-sm text-slate-400 font-medium mb-1">สถานะ</p>
+                      <p className={`font-semibold ${viewingTx.status === 'PENDING' ? 'text-amber-600' : viewingTx.status === 'WAITING_CLEARANCE' ? 'text-rose-600' : 'text-emerald-600'}`}>
+                        {viewingTx.status === 'PENDING' ? 'รออนุมัติ' : viewingTx.status === 'WAITING_CLEARANCE' ? 'รอเคลียร์บิล' : 'สมบูรณ์ (เคลียร์แล้ว)'}
+                      </p>
+                    </div>
                   </div>
 
                   {/* แสดงรายการย่อย ถ้ามี */}
