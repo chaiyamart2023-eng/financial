@@ -7,6 +7,19 @@
   
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Sarabun', 'sans-serif'],
+            serif: ['Sarabun', 'sans-serif'],
+            mono: ['Sarabun', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
   
   <!-- Google Fonts: Sarabun -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -14,18 +27,23 @@
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
   
   <style>
-    /* ลดขนาด font-size รากฐานลงเพื่อให้หน่วย rem ของ Tailwind ทั้งหมดเล็กลง (ลดขนาดลงประมาณ 80-85% + ปรับลด padding ช่วย) */
+    /* ลดขนาด font-size รากฐานลงเพื่อให้หน่วย rem ของ Tailwind ทั้งหมดเล็กลง */
     html {
       font-size: 14px; 
     }
+    
+    /* บังคับใช้ฟอนต์ Sarabun กับทุก Element */
+    * {
+      font-family: 'Sarabun', sans-serif !important;
+    }
+    
     body { 
-      font-family: 'Sarabun', sans-serif; 
       background-color: #f1f5f9; 
       color: #334155;
     }
     
     /* การตั้งค่า Input ให้ดูทางการขึ้น */
-    input[type="text"], input[type="number"], input[type="date"], select {
+    input[type="text"], input[type="number"], input[type="date"], select, input[type="password"] {
       transition: all 0.2s ease-in-out;
     }
     
@@ -91,7 +109,7 @@
       TrendingUp, TrendingDown, Building2, Landmark, Wallet, AlertCircle, FileText,
       Printer, ExternalLink, CalendarDays, FileSpreadsheet, Edit2, X, QrCode, ShieldCheck,
       Camera, CheckCircle2, Image as ImageIcon, Loader2, ClipboardList, Check, XCircle, Clock,
-      BrainCircuit, Filter, Eye, Link, ChevronRight, FileCheck2
+      BrainCircuit, Filter, Eye, Link, ChevronRight, FileCheck2, LogOut, Lock, UserCircle, Shield
     } from 'lucide-react';
     
     import { initializeApp } from 'firebase/app';
@@ -235,16 +253,13 @@
     // =========================================================================
     const parseUrls = (str) => {
         if (!str || str === 'ไม่มีใบเสร็จ') return [];
-        // ใช้ตัวคั่นใหม่ ||| ก่อนเสมอ
         if (str.includes('|||')) return str.split('|||').filter(Boolean);
         
-        // ช่วยกู้ข้อมูลเก่าที่เป็น Base64 แต่โดนตัดด้วยลูกน้ำ
         if (str.startsWith('data:image')) {
             const matches = str.match(/data:image/g);
-            if (matches && matches.length === 1) return [str]; // ถ้ามีภาพเดียว ส่งกลับไปทั้งก้อน
+            if (matches && matches.length === 1) return [str]; 
         }
         
-        // ข้อมูล URL ปกติที่เคยใช้ลูกน้ำคั่น
         if (str.includes(',') && !str.includes('data:image')) {
              return str.split(',').filter(Boolean);
         }
@@ -271,6 +286,11 @@
       // ---------------------------------------------------------
       // Application States
       // ---------------------------------------------------------
+      const [authRole, setAuthRole] = useState('viewer'); // เริ่มต้นเป็นโหมดประชาชน (Viewer)
+      const [showLoginModal, setShowLoginModal] = useState(false);
+      const [loginPassword, setLoginPassword] = useState('');
+      const [loginError, setLoginError] = useState('');
+
       const [activeTab, setActiveTab] = useState('dashboard');
       const [notifications, setNotifications] = useState('');
       const [loading, setLoading] = useState(true);
@@ -451,6 +471,24 @@
         setQrModalVisible(true);
       };
 
+      const handleLogout = () => {
+        setAuthRole('viewer');
+        setActiveTab('dashboard');
+        setLoginPassword('');
+        setLoginError('');
+      };
+
+      const handleLoginSubmit = () => {
+        if(loginPassword === '65411597') { 
+          setAuthRole('admin'); 
+          setShowLoginModal(false); 
+          setLoginPassword(''); 
+          showToast('เข้าสู่ระบบเจ้าหน้าที่เรียบร้อย');
+        } else {
+          setLoginError('รหัสผ่านไม่ถูกต้อง');
+        }
+      };
+
       // ---------------------------------------------------------
       // Calculations & Variables
       // ---------------------------------------------------------
@@ -582,10 +620,8 @@
       };
 
       // ---------------------------------------------------------
-      // Advance Request (ใบขอเบิกหลายรายการ) Handlers
+      // Actions Handlers
       // ---------------------------------------------------------
-      const advanceTotal = advanceForm.items.reduce((acc, item) => acc + ((parseInt(item.qty) || 0) * (parseFloat(item.price) || 0)), 0);
-
       const handleAddAdvanceItem = () => {
         setAdvanceForm({ ...advanceForm, items: [...advanceForm.items, { name: '', qty: 1, price: '' }] });
       };
@@ -629,9 +665,6 @@
         setActiveTab('approvals');
       };
 
-      // ---------------------------------------------------------
-      // Database Submit Handlers
-      // ---------------------------------------------------------
       const handleDonationSubmit = async (e) => {
         e.preventDefault();
         if (!donationForm.amount || !donationForm.title || !user) return;
@@ -646,7 +679,6 @@
         showToast('บันทึกยอดรวมสำเร็จ');
       };
 
-      // ฟอร์มเคลียร์บิลและตัดบัญชี
       const handleClearanceSubmit = async (e) => {
         e.preventDefault();
         if (!clearanceForm.actualAmount || !clearanceForm.id || !user) return;
@@ -675,19 +707,14 @@
       };
 
       const handleEditTxClick = (tx) => {
-        const pass = prompt('กรุณากรอกรหัสผ่าน (Passcode) เพื่อสิทธิ์ในการแก้ไขข้อมูลบัญชี:');
-        if (pass === '65411597') {
-           setEditingTx(tx);
-           setTxEditForm({
-             title: tx.title,
-             category: tx.category,
-             amount: tx.amount,
-             date: tx.date,
-             detailsUrl: tx.detailsUrl || ''
-           });
-        } else if (pass !== null) {
-           alert('❌ รหัสผ่านไม่ถูกต้อง ไม่อนุญาตให้แก้ไขข้อมูลบัญชี');
-        }
+        setEditingTx(tx);
+        setTxEditForm({
+          title: tx.title,
+          category: tx.category,
+          amount: tx.amount,
+          date: tx.date,
+          detailsUrl: tx.detailsUrl || ''
+        });
       };
 
       const handleSaveTxEdit = async (e) => {
@@ -893,9 +920,9 @@
         );
       };
 
-      // =========================================================================
+      // ---------------------------------------------------------
       // Loading View
-      // =========================================================================
+      // ---------------------------------------------------------
       if (loading) {
         return (
           <div className="flex h-screen items-center justify-center bg-slate-100">
@@ -908,7 +935,263 @@
       }
 
       // =========================================================================
-      // Main App Layout
+      // Render Dashboard Content (ใช้ร่วมกันทั้ง Viewer และ Admin)
+      // =========================================================================
+      const renderDashboardContent = () => (
+        <div className="space-y-4 animate-in fade-in">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+            <div className={authRole === 'viewer' ? 'hidden md:block' : ''}>
+              <h2 className="text-xl font-bold text-slate-800">ภาพรวมสถานะการเงิน (Dashboard)</h2>
+              <p className="text-slate-500 text-xs">วิเคราะห์ข้อมูลและแสดงผลในรูปแบบกราฟ</p>
+            </div>
+            <div className={`flex items-center gap-2 bg-white px-3 py-1.5 rounded-md border border-slate-300 shadow-sm w-full md:w-auto ${authRole === 'viewer' ? 'ml-auto' : ''}`}>
+              <Filter className="w-4 h-4 text-blue-500"/>
+              <select value={dashboardPeriod} onChange={e=>setDashboardPeriod(e.target.value)} className="bg-transparent text-xs font-semibold outline-none text-slate-700 w-full cursor-pointer py-1">
+                <option value="all">ข้อมูลทั้งหมด (All Time)</option>
+                <option value="currentMonth">เดือนปัจจุบัน</option>
+                <option value="lastMonth">เดือนที่แล้ว</option>
+              </select>
+            </div>
+          </div>
+
+          {authRole === 'admin' && pendingTransactions.length > 0 && (
+            <div className="bg-amber-50 border-l-4 border-amber-500 p-3 rounded-r-md flex justify-between items-center cursor-pointer hover:bg-amber-100 transition shadow-sm" onClick={() => setActiveTab('approvals')}>
+              <div className="flex items-center gap-3">
+                <Clock className="w-5 h-5 text-amber-600" />
+                <div>
+                  <h4 className="font-semibold text-amber-800 text-sm">มีคำขอเบิกเงินรออนุมัติ {pendingTransactions.length} รายการ</h4>
+                  <p className="text-xs text-amber-700">คลิกเพื่อตรวจสอบและดำเนินการ</p>
+                </div>
+              </div>
+              <ChevronRight className="w-4 h-4 text-amber-600" />
+            </div>
+          )}
+          
+          {authRole === 'admin' && waitingClearanceTxs.length > 0 && (
+            <div className="bg-rose-50 border-l-4 border-rose-500 p-3 rounded-r-md flex justify-between items-center cursor-pointer hover:bg-rose-100 transition shadow-sm" onClick={() => setActiveTab('clearance')}>
+              <div className="flex items-center gap-3">
+                <Receipt className="w-5 h-5 text-rose-600" />
+                <div>
+                  <h4 className="font-semibold text-rose-800 text-sm">รอเคลียร์บิล / ตัดยอดบัญชีรายจ่าย {waitingClearanceTxs.length} รายการ</h4>
+                  <p className="text-xs text-rose-700">อนุมัติจ่ายเงินไปแล้ว กรุณาแนบใบเสร็จเพื่อลงสมุดรายวัน</p>
+                </div>
+              </div>
+              <ChevronRight className="w-4 h-4 text-rose-600" />
+            </div>
+          )}
+
+          {/* AI Insights Card */}
+          <div className="bg-blue-50 p-4 md:p-5 rounded-md border border-blue-200 shadow-sm">
+            <h3 className="flex items-center gap-2 text-base font-bold text-blue-900 mb-3">
+              <BrainCircuit className="w-5 h-5 text-blue-600"/> การวิเคราะห์อัจฉริยะ (AI Insights)
+            </h3>
+            <ul className="space-y-2">
+              {generateInsights().map((text, i) => (
+                <li key={i} className="flex items-start gap-2 text-blue-800 text-sm font-medium">
+                  <span className="text-blue-500 mt-0.5"><CheckCircle2 className="w-4 h-4"/></span> {text}
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Summary Cards */}
+          <div className={`grid grid-cols-1 md:grid-cols-${authRole === 'admin' ? '4' : '3'} gap-4`}>
+            <div className="bg-slate-800 rounded-md p-4 md:p-5 text-white shadow-sm">
+              <p className="text-slate-300 text-xs font-medium mb-1">ยอดยกไปรวมทั้งหมด</p>
+              <h3 className="text-2xl font-bold">{formatMoney(dashNet)}</h3>
+            </div>
+            <div className="bg-white border border-slate-200 rounded-md p-4 md:p-5 shadow-sm">
+              <p className="text-slate-500 text-xs font-medium mb-1">รวมรายรับ (อนุมัติแล้ว)</p>
+              <h3 className="text-xl font-bold text-emerald-600">{formatMoney(dashIncome)}</h3>
+            </div>
+            <div className="bg-white border border-slate-200 rounded-md p-4 md:p-5 shadow-sm">
+              <p className="text-slate-500 text-xs font-medium mb-1">รวมรายจ่าย (เคลียร์บิลแล้ว)</p>
+              <h3 className="text-xl font-bold text-rose-600">{formatMoney(dashExpense)}</h3>
+            </div>
+            {authRole === 'admin' && (
+            <div className="bg-white border border-slate-200 rounded-md p-4 md:p-5 shadow-sm overflow-hidden">
+              <p className="text-slate-500 text-xs font-medium mb-1 flex items-center gap-1.5">
+                <AlertCircle className="w-3.5 h-3.5 text-amber-500"/> สต๊อกใกล้หมด
+              </p>
+              {lowStockItems.length > 0 ? (
+                <div className="space-y-1.5 mt-2">
+                  {lowStockItems.slice(0,3).map(item => (
+                    <div key={item.id} className="flex justify-between text-xs border-b border-slate-100 pb-1">
+                      <span className="truncate pr-2">{item.name}</span>
+                      <span className="text-rose-600 font-bold bg-rose-50 px-1.5 py-0.5 rounded">{item.stock}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-slate-400 mt-2">สต๊อกอยู่ในเกณฑ์ปกติ</p>
+              )}
+            </div>
+            )}
+          </div>
+
+          {/* Charts Area */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-2">
+            <div className="bg-white p-4 rounded-md shadow-sm border border-slate-200">
+              <h3 className="font-semibold text-sm text-slate-800 mb-4 flex items-center gap-2"><TrendingUp className="w-4 h-4 text-blue-500"/> แนวโน้มรายรับ - รายจ่าย</h3>
+              <div className="h-60 w-full text-xs">
+                {trendData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={trendData}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0"/>
+                      <XAxis dataKey="date" tick={{fill: '#64748b'}} axisLine={false} tickLine={false} />
+                      <YAxis tick={{fill: '#64748b'}} axisLine={false} tickLine={false} tickFormatter={(val)=>`฿${val.toLocaleString()}`}/>
+                      <RechartsTooltip cursor={{fill: '#f8fafc'}} formatter={(value) => `฿${value.toLocaleString()}`} contentStyle={{borderRadius: '6px', border: '1px solid #e2e8f0', boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.05)'}} />
+                      <Legend iconType="circle" wrapperStyle={{paddingTop: '10px'}}/>
+                      <Bar dataKey="รายรับ" fill="#10b981" radius={[3,3,0,0]} maxBarSize={32} />
+                      <Bar dataKey="รายจ่าย" fill="#ef4444" radius={[3,3,0,0]} maxBarSize={32} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-slate-400">ไม่มีข้อมูลธุรกรรมในช่วงเวลานี้</div>
+                )}
+              </div>
+            </div>
+
+            <div className="bg-white p-4 rounded-md shadow-sm border border-slate-200">
+              <h3 className="font-semibold text-sm text-slate-800 mb-4 flex items-center gap-2"><TrendingDown className="w-4 h-4 text-blue-500"/> กระแสเงินสดตามเวลา</h3>
+              <div className="h-60 w-full text-xs">
+                {trendData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={trendData}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0"/>
+                      <XAxis dataKey="date" tick={{fill: '#64748b'}} axisLine={false} tickLine={false} />
+                      <YAxis tick={{fill: '#64748b'}} axisLine={false} tickLine={false} tickFormatter={(val)=>`฿${val.toLocaleString()}`}/>
+                      <RechartsTooltip formatter={(value) => `฿${value.toLocaleString()}`} contentStyle={{borderRadius: '6px', border: '1px solid #e2e8f0', boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.05)'}} />
+                      <Legend iconType="circle" wrapperStyle={{paddingTop: '10px'}}/>
+                      <Line type="monotone" dataKey="รายรับ" stroke="#10b981" strokeWidth={2} dot={{r:3}} activeDot={{r: 5}} />
+                      <Line type="monotone" dataKey="รายจ่าย" stroke="#ef4444" strokeWidth={2} dot={{r:3}} activeDot={{r: 5}} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-slate-400">ไม่มีข้อมูลธุรกรรมในช่วงเวลานี้</div>
+                )}
+              </div>
+            </div>
+
+            <div className="bg-white p-4 rounded-md shadow-sm border border-slate-200">
+              <h3 className="font-semibold text-sm text-slate-800 mb-4 flex items-center gap-2"><Receipt className="w-4 h-4 text-rose-500"/> สัดส่วนรายจ่ายตามหมวดหมู่</h3>
+              <div className="h-60 w-full text-xs">
+                {expensePieData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={expensePieData} cx="50%" cy="50%" innerRadius={50} outerRadius={75} paddingAngle={2} dataKey="value" stroke="none">
+                        {expensePieData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <RechartsTooltip formatter={(value) => `฿${value.toLocaleString()}`} contentStyle={{borderRadius: '6px', border: '1px solid #e2e8f0'}} />
+                      <Legend layout="vertical" verticalAlign="middle" align="right" iconType="circle" />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-slate-400">ไม่มีข้อมูลรายจ่ายในช่วงเวลานี้</div>
+                )}
+              </div>
+            </div>
+
+            <div className="bg-white p-4 rounded-md shadow-sm border border-slate-200">
+              <h3 className="font-semibold text-sm text-slate-800 mb-4 flex items-center gap-2"><HandHeart className="w-4 h-4 text-emerald-500"/> สัดส่วนรายรับตามแหล่ง</h3>
+              <div className="h-60 w-full text-xs">
+                {incomePieData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={incomePieData} cx="50%" cy="50%" innerRadius={50} outerRadius={75} paddingAngle={2} dataKey="value" stroke="none">
+                        {incomePieData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={CHART_COLORS[(index + 2) % CHART_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <RechartsTooltip formatter={(value) => `฿${value.toLocaleString()}`} contentStyle={{borderRadius: '6px', border: '1px solid #e2e8f0'}} />
+                      <Legend layout="vertical" verticalAlign="middle" align="right" iconType="circle" />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-slate-400">ไม่มีข้อมูลรายรับในช่วงเวลานี้</div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+
+      // =========================================================================
+      // PUBLIC VIEWER LAYOUT (หน้าจอสำหรับประชาชนทั่วไป)
+      // =========================================================================
+      if (authRole === 'viewer') {
+        return (
+          <div className="min-h-screen bg-slate-100 flex flex-col font-sans text-sm">
+            {/* Public Navbar */}
+            <header className="bg-white border-b border-slate-200 shadow-sm sticky top-0 z-30 px-4 md:px-8 py-3 flex justify-between items-center print:hidden">
+              <div className="flex items-center gap-3">
+                <div className="bg-amber-100 p-2 rounded-lg"><Landmark className="w-6 h-6 text-amber-600"/></div>
+                <div>
+                  <h1 className="font-bold text-base md:text-lg text-slate-800 leading-none">{generalSettings.templeName}</h1>
+                  <p className="text-[11px] text-slate-500">ระบบเปิดเผยข้อมูลสาธารณะ</p>
+                </div>
+              </div>
+              <button onClick={() => setShowLoginModal(true)} className="flex items-center gap-1.5 bg-slate-800 text-white px-4 py-2 rounded-md hover:bg-slate-700 transition text-xs font-medium shadow-sm">
+                <Lock className="w-3.5 h-3.5"/> สำหรับเจ้าหน้าที่
+              </button>
+            </header>
+
+            {/* Public Main Content */}
+            <main className="flex-1 w-full max-w-6xl mx-auto px-4 py-6 md:py-8">
+              {/* Hero Banner */}
+              <div className="bg-gradient-to-r from-blue-900 to-slate-800 rounded-lg shadow-md p-6 md:p-10 mb-8 text-white text-center flex flex-col items-center animate-in slide-in-from-bottom-4 duration-500">
+                <Shield className="w-12 h-12 text-emerald-400 mb-3 opacity-90"/>
+                <h2 className="text-2xl md:text-3xl font-bold mb-2">รายงานสถานะการเงินโปร่งใส</h2>
+                <p className="text-blue-200 text-xs md:text-sm max-w-2xl">ข้อมูลบัญชีรายรับ-รายจ่ายของ {generalSettings.templeName} ถูกเปิดเผยต่อสาธารณชนแบบ Real-time เพื่อความโปร่งใสและตรวจสอบได้ตามหลักธรรมาภิบาล</p>
+              </div>
+              
+              {renderDashboardContent()}
+            </main>
+
+            {/* ----- Modal: Login Staff ----- */}
+            {showLoginModal && (
+              <div className="fixed inset-0 z-[110] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
+                <div className="bg-white rounded-lg shadow-xl w-full max-w-sm p-6 relative">
+                  <button onClick={() => {setShowLoginModal(false); setLoginError(''); setLoginPassword('');}} className="absolute top-3 right-3 text-slate-400 hover:text-rose-500 transition p-1 rounded-full hover:bg-rose-50">
+                    <X className="w-5 h-5"/>
+                  </button>
+                  <div className="text-center mb-5">
+                    <div className="bg-blue-100 text-blue-600 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3 shadow-sm">
+                      <UserCircle className="w-6 h-6"/>
+                    </div>
+                    <h3 className="font-bold text-lg text-slate-800">เข้าสู่ระบบเจ้าหน้าที่</h3>
+                    <p className="text-xs text-slate-500 mt-1">กรุณาใส่รหัสผ่านเพื่อเข้าสู่ระบบจัดการ</p>
+                  </div>
+                  <div className="space-y-4">
+                    <div>
+                      <input 
+                        type="password" 
+                        placeholder="รหัสผ่าน..." 
+                        value={loginPassword}
+                        onChange={(e) => {setLoginPassword(e.target.value); setLoginError('');}}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-1 focus:ring-blue-500 outline-none text-sm transition text-center"
+                        onKeyDown={(e) => { if(e.key === 'Enter') handleLoginSubmit(); }}
+                      />
+                      {loginError && <p className="text-[11px] text-rose-500 mt-1.5 font-bold text-center">{loginError}</p>}
+                    </div>
+                    <button 
+                      onClick={handleLoginSubmit}
+                      className="w-full bg-blue-600 text-white font-medium py-2 rounded-md hover:bg-blue-700 transition text-sm shadow-sm flex items-center justify-center gap-2"
+                    >
+                      <Lock className="w-4 h-4"/> ยืนยันการเข้าสู่ระบบ
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      // =========================================================================
+      // ADMIN LAYOUT (หน้าจอจัดการของเจ้าหน้าที่)
       // =========================================================================
       return (
         <div className="flex h-screen bg-slate-100 overflow-hidden print:h-auto print:overflow-visible print:bg-white text-sm">
@@ -919,7 +1202,10 @@
               <Landmark className="w-6 h-6 text-amber-500 shrink-0" />
               <div className="overflow-hidden">
                 <h1 className="font-bold text-base leading-tight truncate">ระบบบัญชีวัด</h1>
-                <p className="text-xs text-slate-400 truncate">{generalSettings.templeName}</p>
+                <p className="text-[10px] text-slate-400 truncate flex items-center gap-1 mt-0.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                  สิทธิ์: เจ้าหน้าที่
+                </p>
               </div>
             </div>
             
@@ -962,10 +1248,15 @@
                 <ShieldCheck className="w-4 h-4" /> ตั้งค่าระบบ
               </button>
             </nav>
+
+            <div className="p-3 border-t border-slate-800">
+              <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-slate-800 hover:bg-rose-600 text-slate-300 hover:text-white rounded-md transition text-xs font-medium">
+                <LogOut className="w-4 h-4"/> ออกจากระบบ
+              </button>
+            </div>
           </div>
 
           {/* ---------------- Main Content Area ---------------- */}
-          {/* ซ่อนส่วนนี้ทั้งหมดถ้ามีการเปิด Modal สั่งพิมพ์ เพื่อป้องกันหน้าซ้อนกัน */}
           <div className={`flex-1 flex flex-col h-full overflow-hidden relative ${isPrintModalOpen ? 'print:hidden' : 'print:overflow-visible print:h-auto print:block'}`}>
             
             {/* Mobile Header */}
@@ -974,17 +1265,20 @@
                 <Landmark className="w-5 h-5 text-amber-500 shrink-0"/> 
                 <span className="font-bold truncate text-sm">{generalSettings.templeName}</span>
               </div>
-              <select value={activeTab} onChange={(e) => setActiveTab(e.target.value)} className="bg-slate-800 text-xs border border-slate-700 rounded py-1.5 px-2 outline-none ml-2 shrink-0">
-                <option value="dashboard">ภาพรวม</option>
-                <option value="approvals">คำขอเบิกเงิน</option>
-                <option value="dailyReport">รายงานประจำวัน</option>
-                <option value="donation">รับบริจาค</option>
-                <option value="inventory">คลังสินค้า</option>
-                <option value="expense">ขอเบิกเงิน</option>
-                <option value="clearance">เคลียร์บิล</option>
-                <option value="ledger">สมุดรายวัน</option>
-                <option value="admin">ตั้งค่า</option>
-              </select>
+              <div className="flex items-center gap-2 shrink-0">
+                <select value={activeTab} onChange={(e) => setActiveTab(e.target.value)} className="bg-slate-800 text-xs border border-slate-700 rounded py-1.5 px-2 outline-none">
+                  <option value="dashboard">ภาพรวม</option>
+                  <option value="approvals">คำขอเบิกเงิน</option>
+                  <option value="dailyReport">รายงานประจำวัน</option>
+                  <option value="donation">รับบริจาค</option>
+                  <option value="inventory">คลังสินค้า</option>
+                  <option value="expense">ขอเบิกเงิน</option>
+                  <option value="clearance">เคลียร์บิล</option>
+                  <option value="ledger">สมุดรายวัน</option>
+                  <option value="admin">ตั้งค่า</option>
+                </select>
+                <button onClick={handleLogout} className="bg-rose-600 text-white p-1.5 rounded" title="ออกจากระบบ"><LogOut className="w-4 h-4"/></button>
+              </div>
             </div>
 
             {/* Floating Notification Toast */}
@@ -999,184 +1293,7 @@
               <div className="max-w-7xl mx-auto print:max-w-none">
                 
                 {/* >>>>>>>>>> DASHBOARD VIEW <<<<<<<<<< */}
-                {activeTab === 'dashboard' && (
-                  <div className="space-y-4 animate-in fade-in">
-                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
-                      <div>
-                        <h2 className="text-xl font-bold text-slate-800">ภาพรวมสถานะการเงิน (Dashboard)</h2>
-                        <p className="text-slate-500 text-xs">วิเคราะห์ข้อมูลและแสดงผลในรูปแบบกราฟ</p>
-                      </div>
-                      <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-md border border-slate-300 shadow-sm w-full md:w-auto">
-                        <Filter className="w-4 h-4 text-blue-500"/>
-                        <select value={dashboardPeriod} onChange={e=>setDashboardPeriod(e.target.value)} className="bg-transparent text-xs font-semibold outline-none text-slate-700 w-full cursor-pointer py-1">
-                          <option value="all">ข้อมูลทั้งหมด (All Time)</option>
-                          <option value="currentMonth">เดือนปัจจุบัน</option>
-                          <option value="lastMonth">เดือนที่แล้ว</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    {pendingTransactions.length > 0 && (
-                      <div className="bg-amber-50 border-l-4 border-amber-500 p-3 rounded-r-md flex justify-between items-center cursor-pointer hover:bg-amber-100 transition shadow-sm" onClick={() => setActiveTab('approvals')}>
-                        <div className="flex items-center gap-3">
-                          <Clock className="w-5 h-5 text-amber-600" />
-                          <div>
-                            <h4 className="font-semibold text-amber-800 text-sm">มีคำขอเบิกเงินรออนุมัติ {pendingTransactions.length} รายการ</h4>
-                            <p className="text-xs text-amber-700">คลิกเพื่อตรวจสอบและดำเนินการ</p>
-                          </div>
-                        </div>
-                        <ChevronRight className="w-4 h-4 text-amber-600" />
-                      </div>
-                    )}
-                    
-                    {waitingClearanceTxs.length > 0 && (
-                      <div className="bg-rose-50 border-l-4 border-rose-500 p-3 rounded-r-md flex justify-between items-center cursor-pointer hover:bg-rose-100 transition shadow-sm" onClick={() => setActiveTab('clearance')}>
-                        <div className="flex items-center gap-3">
-                          <Receipt className="w-5 h-5 text-rose-600" />
-                          <div>
-                            <h4 className="font-semibold text-rose-800 text-sm">รอเคลียร์บิล / ตัดยอดบัญชีรายจ่าย {waitingClearanceTxs.length} รายการ</h4>
-                            <p className="text-xs text-rose-700">อนุมัติจ่ายเงินไปแล้ว กรุณาแนบใบเสร็จเพื่อลงสมุดรายวัน</p>
-                          </div>
-                        </div>
-                        <ChevronRight className="w-4 h-4 text-rose-600" />
-                      </div>
-                    )}
-
-                    {/* AI Insights Card */}
-                    <div className="bg-blue-50 p-4 md:p-5 rounded-md border border-blue-200 shadow-sm">
-                      <h3 className="flex items-center gap-2 text-base font-bold text-blue-900 mb-3">
-                        <BrainCircuit className="w-5 h-5 text-blue-600"/> การวิเคราะห์อัจฉริยะ (AI Insights)
-                      </h3>
-                      <ul className="space-y-2">
-                        {generateInsights().map((text, i) => (
-                          <li key={i} className="flex items-start gap-2 text-blue-800 text-sm font-medium">
-                            <span className="text-blue-500 mt-0.5"><CheckCircle2 className="w-4 h-4"/></span> {text}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-
-                    {/* Summary Cards */}
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                      <div className="bg-slate-800 rounded-md p-4 md:p-5 text-white shadow-sm">
-                        <p className="text-slate-300 text-xs font-medium mb-1">ยอดยกไปรวมทั้งหมด</p>
-                        <h3 className="text-2xl font-bold">{formatMoney(dashNet)}</h3>
-                      </div>
-                      <div className="bg-white border border-slate-200 rounded-md p-4 md:p-5 shadow-sm">
-                        <p className="text-slate-500 text-xs font-medium mb-1">รวมรายรับ (อนุมัติแล้ว)</p>
-                        <h3 className="text-xl font-bold text-emerald-600">{formatMoney(dashIncome)}</h3>
-                      </div>
-                      <div className="bg-white border border-slate-200 rounded-md p-4 md:p-5 shadow-sm">
-                        <p className="text-slate-500 text-xs font-medium mb-1">รวมรายจ่าย (เคลียร์บิลแล้ว)</p>
-                        <h3 className="text-xl font-bold text-rose-600">{formatMoney(dashExpense)}</h3>
-                      </div>
-                      <div className="bg-white border border-slate-200 rounded-md p-4 md:p-5 shadow-sm overflow-hidden">
-                        <p className="text-slate-500 text-xs font-medium mb-1 flex items-center gap-1.5">
-                          <AlertCircle className="w-3.5 h-3.5 text-amber-500"/> สต๊อกใกล้หมด
-                        </p>
-                        {lowStockItems.length > 0 ? (
-                          <div className="space-y-1.5 mt-2">
-                            {lowStockItems.slice(0,3).map(item => (
-                              <div key={item.id} className="flex justify-between text-xs border-b border-slate-100 pb-1">
-                                <span className="truncate pr-2">{item.name}</span>
-                                <span className="text-rose-600 font-bold bg-rose-50 px-1.5 py-0.5 rounded">{item.stock}</span>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-xs text-slate-400 mt-2">สต๊อกอยู่ในเกณฑ์ปกติ</p>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Charts Area */}
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-2">
-                      <div className="bg-white p-4 rounded-md shadow-sm border border-slate-200">
-                        <h3 className="font-semibold text-sm text-slate-800 mb-4 flex items-center gap-2"><TrendingUp className="w-4 h-4 text-blue-500"/> แนวโน้มรายรับ - รายจ่าย</h3>
-                        <div className="h-60 w-full text-xs">
-                          {trendData.length > 0 ? (
-                            <ResponsiveContainer width="100%" height="100%">
-                              <BarChart data={trendData}>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0"/>
-                                <XAxis dataKey="date" tick={{fill: '#64748b'}} axisLine={false} tickLine={false} />
-                                <YAxis tick={{fill: '#64748b'}} axisLine={false} tickLine={false} tickFormatter={(val)=>`฿${val.toLocaleString()}`}/>
-                                <RechartsTooltip cursor={{fill: '#f8fafc'}} formatter={(value) => `฿${value.toLocaleString()}`} contentStyle={{borderRadius: '6px', border: '1px solid #e2e8f0', boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.05)'}} />
-                                <Legend iconType="circle" wrapperStyle={{paddingTop: '10px'}}/>
-                                <Bar dataKey="รายรับ" fill="#10b981" radius={[3,3,0,0]} maxBarSize={32} />
-                                <Bar dataKey="รายจ่าย" fill="#ef4444" radius={[3,3,0,0]} maxBarSize={32} />
-                              </BarChart>
-                            </ResponsiveContainer>
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center text-slate-400">ไม่มีข้อมูลธุรกรรมในช่วงเวลานี้</div>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="bg-white p-4 rounded-md shadow-sm border border-slate-200">
-                        <h3 className="font-semibold text-sm text-slate-800 mb-4 flex items-center gap-2"><TrendingDown className="w-4 h-4 text-blue-500"/> กระแสเงินสดตามเวลา</h3>
-                        <div className="h-60 w-full text-xs">
-                          {trendData.length > 0 ? (
-                            <ResponsiveContainer width="100%" height="100%">
-                              <LineChart data={trendData}>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0"/>
-                                <XAxis dataKey="date" tick={{fill: '#64748b'}} axisLine={false} tickLine={false} />
-                                <YAxis tick={{fill: '#64748b'}} axisLine={false} tickLine={false} tickFormatter={(val)=>`฿${val.toLocaleString()}`}/>
-                                <RechartsTooltip formatter={(value) => `฿${value.toLocaleString()}`} contentStyle={{borderRadius: '6px', border: '1px solid #e2e8f0', boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.05)'}} />
-                                <Legend iconType="circle" wrapperStyle={{paddingTop: '10px'}}/>
-                                <Line type="monotone" dataKey="รายรับ" stroke="#10b981" strokeWidth={2} dot={{r:3}} activeDot={{r: 5}} />
-                                <Line type="monotone" dataKey="รายจ่าย" stroke="#ef4444" strokeWidth={2} dot={{r:3}} activeDot={{r: 5}} />
-                              </LineChart>
-                            </ResponsiveContainer>
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center text-slate-400">ไม่มีข้อมูลธุรกรรมในช่วงเวลานี้</div>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="bg-white p-4 rounded-md shadow-sm border border-slate-200">
-                        <h3 className="font-semibold text-sm text-slate-800 mb-4 flex items-center gap-2"><Receipt className="w-4 h-4 text-rose-500"/> สัดส่วนรายจ่ายตามหมวดหมู่</h3>
-                        <div className="h-60 w-full text-xs">
-                          {expensePieData.length > 0 ? (
-                            <ResponsiveContainer width="100%" height="100%">
-                              <PieChart>
-                                <Pie data={expensePieData} cx="50%" cy="50%" innerRadius={50} outerRadius={75} paddingAngle={2} dataKey="value" stroke="none">
-                                  {expensePieData.map((entry, index) => (
-                                    <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                                  ))}
-                                </Pie>
-                                <RechartsTooltip formatter={(value) => `฿${value.toLocaleString()}`} contentStyle={{borderRadius: '6px', border: '1px solid #e2e8f0'}} />
-                                <Legend layout="vertical" verticalAlign="middle" align="right" iconType="circle" />
-                              </PieChart>
-                            </ResponsiveContainer>
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center text-slate-400">ไม่มีข้อมูลรายจ่ายในช่วงเวลานี้</div>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="bg-white p-4 rounded-md shadow-sm border border-slate-200">
-                        <h3 className="font-semibold text-sm text-slate-800 mb-4 flex items-center gap-2"><HandHeart className="w-4 h-4 text-emerald-500"/> สัดส่วนรายรับตามแหล่ง</h3>
-                        <div className="h-60 w-full text-xs">
-                          {incomePieData.length > 0 ? (
-                            <ResponsiveContainer width="100%" height="100%">
-                              <PieChart>
-                                <Pie data={incomePieData} cx="50%" cy="50%" innerRadius={50} outerRadius={75} paddingAngle={2} dataKey="value" stroke="none">
-                                  {incomePieData.map((entry, index) => (
-                                    <Cell key={`cell-${index}`} fill={CHART_COLORS[(index + 2) % CHART_COLORS.length]} />
-                                  ))}
-                                </Pie>
-                                <RechartsTooltip formatter={(value) => `฿${value.toLocaleString()}`} contentStyle={{borderRadius: '6px', border: '1px solid #e2e8f0'}} />
-                                <Legend layout="vertical" verticalAlign="middle" align="right" iconType="circle" />
-                              </PieChart>
-                            </ResponsiveContainer>
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center text-slate-400">ไม่มีข้อมูลรายรับในช่วงเวลานี้</div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
+                {activeTab === 'dashboard' && renderDashboardContent()}
 
                 {/* >>>>>>>>>> APPROVALS VIEW <<<<<<<<<< */}
                 {activeTab === 'approvals' && (
@@ -1437,7 +1554,7 @@
                 })()}
 
                 {/* >>>>>>>>>> ADVANCE REQUEST VIEW (สร้างใบขอเบิกแบบมีรายการย่อย) <<<<<<<<<< */}
-                {activeTab === 'expense' && (
+                {activeTab === 'expense' && authRole === 'admin' && (
                   <div className="space-y-4 animate-in fade-in">
                     <div className="flex items-center gap-3 mb-4">
                       <div className="bg-amber-100 p-2.5 rounded-md"><FileText className="w-5 h-5 text-amber-600" /></div>
@@ -1505,7 +1622,7 @@
                 )}
                 
                 {/* >>>>>>>>>> CLEARANCE VIEW (เคลียร์บิล / ตัดบัญชี) <<<<<<<<<< */}
-                {activeTab === 'clearance' && (
+                {activeTab === 'clearance' && authRole === 'admin' && (
                   <div className="space-y-4 animate-in fade-in">
                     <div className="flex items-center gap-3 mb-4">
                       <div className="bg-rose-100 p-2.5 rounded-md"><Receipt className="w-5 h-5 text-rose-600" /></div>
@@ -1601,7 +1718,7 @@
                 )}
 
                 {/* >>>>>>>>>> DONATION VIEW <<<<<<<<<< */}
-                {activeTab === 'donation' && (
+                {activeTab === 'donation' && authRole === 'admin' && (
                   <div className="space-y-4 animate-in fade-in">
                     <div className="flex items-center gap-3 mb-4">
                       <div className="bg-emerald-100 p-2.5 rounded-md"><HandHeart className="w-5 h-5 text-emerald-600" /></div>
@@ -1644,14 +1761,15 @@
                       <div className="flex items-center gap-3">
                         <div className="bg-indigo-100 p-2.5 rounded-md"><PackageSearch className="w-5 h-5 text-indigo-600" /></div>
                         <div>
-                          <h2 className="text-xl font-bold text-slate-800">จัดการเช่าบูชา และตรวจนับสต๊อก</h2>
-                          <p className="text-slate-500 text-xs">กรอก "ยอดที่เหลืออยู่จริง" ระบบจะคำนวณจำหน่ายและบันทึกรายรับให้อัตโนมัติ</p>
+                          <h2 className="text-xl font-bold text-slate-800">คลังวัตถุมงคล / สินทรัพย์</h2>
+                          <p className="text-slate-500 text-xs">เช็คยอดคงเหลือและมูลค่า</p>
                         </div>
                       </div>
                     </div>
                     
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
                       {/* ตัดสต๊อก */}
+                      {authRole === 'admin' && (
                       <div className="lg:col-span-1 bg-white p-5 rounded-md shadow-sm border border-slate-200 flex flex-col">
                         <h3 className="font-semibold text-sm text-slate-800 mb-4 border-b border-slate-100 pb-2 flex items-center gap-2">
                           <Wallet className="w-4 h-4 text-indigo-500"/> อัปเดตยอดคงเหลือ / บันทึกขาย
@@ -1712,9 +1830,10 @@
                           </button>
                         </form>
                       </div>
+                      )}
 
                       {/* ตารางสต๊อก */}
-                      <div className="lg:col-span-2 space-y-5">
+                      <div className={`${authRole === 'admin' ? 'lg:col-span-2' : 'lg:col-span-3'} space-y-5`}>
                         <div className="bg-white rounded-md shadow-sm border border-slate-200 overflow-hidden">
                           <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
                             <h3 className="font-semibold text-sm text-slate-800">รายการวัตถุมงคลคงคลัง (Stock)</h3>
@@ -1733,7 +1852,7 @@
                                   <th className="px-3 py-2 font-semibold">ชื่อรายการ</th>
                                   <th className="px-3 py-2 font-semibold text-right">ราคา/ชิ้น</th>
                                   <th className="px-3 py-2 font-semibold text-center">คงเหลือ</th>
-                                  <th className="px-3 py-2 font-semibold text-center">จัดการ</th>
+                                  {authRole === 'admin' && <th className="px-3 py-2 font-semibold text-center">จัดการ</th>}
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-slate-100">
@@ -1747,6 +1866,7 @@
                                         {item.stock}
                                       </span>
                                     </td>
+                                    {authRole === 'admin' && (
                                     <td className="px-3 py-2 text-center">
                                       <div className="flex justify-center gap-1.5">
                                         <button onClick={() => openEditModal(item)} className="text-slate-400 hover:text-blue-600 bg-white border border-slate-200 hover:border-blue-300 hover:bg-blue-50 p-1 rounded transition" title="แก้ไข/ปรับสต๊อก">
@@ -1757,11 +1877,12 @@
                                         </button>
                                       </div>
                                     </td>
+                                    )}
                                   </tr>
                                 ))}
                                 {inventory.length === 0 && (
                                   <tr>
-                                    <td colSpan="5" className="px-3 py-6 text-center text-slate-500">
+                                    <td colSpan={authRole === 'admin' ? '5' : '4'} className="px-3 py-6 text-center text-slate-500">
                                       ยังไม่มีรายการสินค้าในคลัง
                                     </td>
                                   </tr>
@@ -1772,6 +1893,7 @@
                         </div>
 
                         {/* ฟอร์มเพิ่มสินค้า */}
+                        {authRole === 'admin' && (
                         <div className="bg-slate-50 p-4 rounded-md border border-slate-200">
                           <h4 className="font-semibold text-sm text-slate-700 mb-3 flex items-center gap-1.5"><Plus className="w-4 h-4 text-indigo-500"/> เพิ่มรายการใหม่เข้าคลัง (Initial Stock)</h4>
                           <form onSubmit={handleAddInventory} className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
@@ -1817,6 +1939,7 @@
                             </div>
                           </form>
                         </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1880,12 +2003,16 @@
                                       <button onClick={() => setPrintTx(tx)} className="text-slate-600 bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 p-1 rounded transition" title="พิมพ์ใบสำคัญรับ/จ่าย">
                                         <Printer className="w-3.5 h-3.5" />
                                       </button>
-                                      <button onClick={() => handleEditTxClick(tx)} className="text-amber-600 bg-white border border-slate-200 hover:border-amber-300 hover:bg-amber-50 p-1 rounded transition" title="แก้ไข (ต้องใส่รหัส)">
-                                        <Edit2 className="w-3.5 h-3.5" />
-                                      </button>
-                                      <button onClick={() => handleDeleteTransaction(tx.id)} className="text-slate-400 hover:text-rose-600 bg-white border border-slate-200 hover:border-rose-300 hover:bg-rose-50 p-1 rounded transition" title="ลบรายการบัญชีนี้">
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                      </button>
+                                      {authRole === 'admin' && (
+                                        <>
+                                          <button onClick={() => handleEditTxClick(tx)} className="text-amber-600 bg-white border border-slate-200 hover:border-amber-300 hover:bg-amber-50 p-1 rounded transition" title="แก้ไข (ต้องใส่รหัส)">
+                                            <Edit2 className="w-3.5 h-3.5" />
+                                          </button>
+                                          <button onClick={() => handleDeleteTransaction(tx.id)} className="text-slate-400 hover:text-rose-600 bg-white border border-slate-200 hover:border-rose-300 hover:bg-rose-50 p-1 rounded transition" title="ลบรายการบัญชีนี้">
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                          </button>
+                                        </>
+                                      )}
                                     </div>
                                   </td>
                                 </tr>
@@ -1908,7 +2035,7 @@
                 )}
 
                 {/* >>>>>>>>>> ADMIN VIEW <<<<<<<<<< */}
-                {activeTab === 'admin' && (
+                {activeTab === 'admin' && authRole === 'admin' && (
                   <div className="space-y-4 animate-in fade-in">
                     <div className="flex items-center gap-3 mb-4">
                       <div className="bg-slate-800 p-2.5 rounded-md"><ShieldCheck className="w-5 h-5 text-white" /></div>
@@ -2501,6 +2628,43 @@
                     <button type="submit" className="flex-1 bg-blue-600 text-white py-2 rounded-md font-medium hover:bg-blue-700 transition flex items-center justify-center gap-1.5 shadow-sm text-sm"><Save className="w-4 h-4"/> บันทึก</button>
                   </div>
                 </form>
+              </div>
+            </div>
+          )}
+
+          {/* ----- Modal: Login Staff ----- */}
+          {showLoginModal && (
+            <div className="fixed inset-0 z-[110] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-white rounded-lg shadow-xl w-full max-w-sm p-6 relative">
+                <button onClick={() => {setShowLoginModal(false); setLoginError(''); setLoginPassword('');}} className="absolute top-3 right-3 text-slate-400 hover:text-rose-500 transition p-1 rounded-full hover:bg-rose-50">
+                  <X className="w-5 h-5"/>
+                </button>
+                <div className="text-center mb-5">
+                  <div className="bg-blue-100 text-blue-600 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3 shadow-sm">
+                    <UserCircle className="w-6 h-6"/>
+                  </div>
+                  <h3 className="font-bold text-lg text-slate-800">เข้าสู่ระบบเจ้าหน้าที่</h3>
+                  <p className="text-xs text-slate-500 mt-1">กรุณาใส่รหัสผ่านเพื่อเข้าสู่ระบบจัดการ</p>
+                </div>
+                <div className="space-y-4">
+                  <div>
+                    <input 
+                      type="password" 
+                      placeholder="รหัสผ่าน..." 
+                      value={loginPassword}
+                      onChange={(e) => {setLoginPassword(e.target.value); setLoginError('');}}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-1 focus:ring-blue-500 outline-none text-sm transition text-center"
+                      onKeyDown={(e) => { if(e.key === 'Enter') handleLoginSubmit(); }}
+                    />
+                    {loginError && <p className="text-[11px] text-rose-500 mt-1.5 font-bold text-center">{loginError}</p>}
+                  </div>
+                  <button 
+                    onClick={handleLoginSubmit}
+                    className="w-full bg-blue-600 text-white font-medium py-2 rounded-md hover:bg-blue-700 transition text-sm shadow-sm flex items-center justify-center gap-2"
+                  >
+                    <Lock className="w-4 h-4"/> ยืนยันการเข้าสู่ระบบ
+                  </button>
+                </div>
               </div>
             </div>
           )}
