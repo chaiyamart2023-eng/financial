@@ -5,8 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ระบบบัญชีวัดไชยามาตย์ (ERP)</title>
   
+  <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   
+  <!-- Google Fonts: Sarabun -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -21,7 +23,7 @@
     @media print {
       @page {
         size: A4;
-        margin: 10mm 15mm; /* เพิ่ม margin ด้านข้างเล็กน้อยเพื่อไม่ให้ชิดขอบไป */
+        margin: 10mm 15mm; 
       }
       body { 
         -webkit-print-color-adjust: exact; 
@@ -37,11 +39,12 @@
       * { overflow: visible !important; }
       ::-webkit-scrollbar { display: none !important; }
       
-      /* ซ่อน UI ที่ไม่จำเป็นตอนพิมพ์อย่างเด็ดขาด */
+      /* ซ่อน UI ที่ไม่จำเป็นตอนพิมพ์ */
       .no-print { display: none !important; }
     }
   </style>
 
+  <!-- ES Modules Setup -->
   <script type="importmap">
     {
       "imports": {
@@ -56,6 +59,7 @@
     }
   </script>
   
+  <!-- Babel -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 <body>
@@ -233,6 +237,9 @@
       const [previewImage, setPreviewImage] = useState(null); 
       const [viewingTx, setViewingTx] = useState(null); 
       const [qrModalVisible, setQrModalVisible] = useState(false);
+      
+      // ตัวแปรเช็คว่ามี Modal สั่งพิมพ์เปิดอยู่หรือไม่ (เพื่อซ่อนพื้นหลังป้องกันการพิมพ์ซ้อน)
+      const isPrintModalOpen = !!printTx || showInventoryPrint || showLedgerPrint;
       
       // Edit Modals
       const [editingTx, setEditingTx] = useState(null); 
@@ -848,7 +855,7 @@
         <div className="flex h-screen bg-slate-100 overflow-hidden print:h-auto print:overflow-visible print:bg-white">
           
           {/* ---------------- Sidebar Navigation (Desktop) ---------------- */}
-          <div className="w-64 bg-slate-900 text-slate-300 flex flex-col shadow-xl z-20 hidden md:flex print:hidden shrink-0">
+          <div className={`w-64 bg-slate-900 text-slate-300 flex flex-col shadow-xl z-20 hidden md:flex print:hidden shrink-0`}>
             <div className="p-6 flex items-center gap-3 text-white border-b border-slate-800">
               <Landmark className="w-8 h-8 text-amber-500 shrink-0" />
               <div className="overflow-hidden">
@@ -900,7 +907,8 @@
           </div>
 
           {/* ---------------- Main Content Area ---------------- */}
-          <div className="flex-1 flex flex-col h-full overflow-hidden relative print:overflow-visible print:h-auto print:block">
+          {/* ซ่อนส่วนนี้ทั้งหมดถ้ามีการเปิด Modal สั่งพิมพ์ เพื่อป้องกันหน้าซ้อนกัน */}
+          <div className={`flex-1 flex flex-col h-full overflow-hidden relative ${isPrintModalOpen ? 'print:hidden' : 'print:overflow-visible print:h-auto print:block'}`}>
             
             {/* Mobile Header */}
             <div className="md:hidden bg-slate-900 text-white p-4 flex justify-between items-center shadow-md print:hidden shrink-0">
@@ -1175,37 +1183,43 @@
                   const dailyExpense = dailyTransactions.filter(t => t.type === 'EXPENSE').reduce((acc, curr) => acc + curr.amount, 0);
 
                   return (
-                  <div className="space-y-6 animate-in fade-in print:p-0">
-                    <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-6 gap-4 print:hidden">
-                      <div className="flex items-center gap-3">
-                        <div className="bg-blue-100 p-3 rounded-xl"><CalendarDays className="w-6 h-6 text-blue-600" /></div>
+                  <div className="space-y-6 animate-in fade-in print:p-0 print:m-0">
+                    
+                    {/* แถบเครื่องมือด้านบน จะถูกซ่อนเวลาสั่งพิมพ์ */}
+                    <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 print:hidden">
+                      <div className="flex items-center gap-4">
+                        <div className="bg-blue-100 p-3 rounded-xl"><CalendarDays className="w-8 h-8 text-blue-600" /></div>
                         <div>
-                          <h2 className="text-2xl font-bold text-slate-800">พิมพ์รายงานประจำวัน</h2>
-                          <p className="text-slate-500 text-sm">เลือกวันที่ต้องการสรุปยอด และสั่งพิมพ์รายงาน</p>
+                          <h2 className="text-xl md:text-2xl font-bold text-slate-800">พิมพ์รายงานประจำวัน</h2>
+                          <p className="text-slate-500 text-sm">เลือกวันที่เพื่อสรุปยอดและพิมพ์เป็นเอกสาร</p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                         <input 
-                            type="date" 
-                            value={reportDate} 
-                            onChange={(e) => setReportDate(e.target.value)} 
-                            className="px-4 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 font-medium"
-                         />
-                         <button onClick={() => window.print()} className="bg-slate-800 text-white px-4 py-2 rounded-lg hover:bg-slate-700 transition flex items-center gap-2 text-sm font-bold shadow-sm">
-                           <Printer className="w-4 h-4"/> สั่งพิมพ์
+                      
+                      <div className="flex items-center gap-3 w-full md:w-auto">
+                         <div className="flex flex-col flex-1">
+                           <label className="text-xs font-bold text-slate-500 mb-1 ml-1">เลือกวันที่</label>
+                           <input 
+                              type="date" 
+                              value={reportDate} 
+                              onChange={(e) => setReportDate(e.target.value)} 
+                              className="px-4 py-3 border-2 border-slate-200 rounded-xl outline-none focus:border-blue-500 font-medium w-full text-slate-700 bg-slate-50"
+                           />
+                         </div>
+                         <button onClick={() => window.print()} className="bg-slate-800 text-white px-6 py-3 rounded-xl hover:bg-slate-700 transition flex items-center justify-center gap-2 font-bold shadow-md self-end mt-4">
+                           <Printer className="w-5 h-5"/> สั่งพิมพ์
                          </button>
                       </div>
                     </div>
 
-                    {/* Report Printable Area */}
-                    <div className="bg-white w-full max-w-[21cm] mx-auto p-10 md:p-14 shadow-sm border border-slate-200 print:shadow-none print:border-none print:p-0">
+                    {/* Report Printable Area (กระดาษที่จะถูกพิมพ์) */}
+                    <div className="bg-white w-full max-w-[21cm] mx-auto p-10 md:p-14 shadow-md border border-slate-200 print:shadow-none print:border-none print:p-0">
                        <div className="text-center mb-8 border-b-2 border-black pb-6">
                          <h1 className="text-2xl font-bold mb-2 text-slate-900">{generalSettings.templeName}</h1>
                          <h2 className="text-xl font-bold mb-2">รายงานรับ - จ่าย ประจำวัน</h2>
                          <p className="text-lg">ประจำวันที่: {new Date(reportDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
                        </div>
 
-                       <div className="grid grid-cols-2 gap-4 mb-8 text-center">
+                       <div className="grid grid-cols-2 gap-4 mb-8 text-center print:break-inside-avoid">
                          <div className="bg-emerald-50 print:bg-transparent border border-emerald-200 print:border-black p-4 rounded-xl print:rounded-none">
                            <p className="font-semibold text-emerald-800 print:text-black mb-1">รวมรายรับวันนี้</p>
                            <p className="text-2xl font-bold text-emerald-600 print:text-black">{formatMoney(dailyIncome)}</p>
@@ -1232,11 +1246,11 @@
                            ) : (
                              dailyTransactions.map(tx => (
                                <tr key={tx.id} className="border-b border-slate-300 print:border-black">
-                                 <td className="py-2 px-3 border-r border-slate-300 print:border-black">{tx.date.split(' ')[1]}</td>
+                                 <td className="py-2 px-3 border-r border-slate-300 print:border-black text-center">{tx.date.split(' ')[1]}</td>
                                  <td className="py-2 px-3 border-r border-slate-300 print:border-black">{tx.title}</td>
-                                 <td className="py-2 px-3 border-r border-slate-300 print:border-black">{tx.category}</td>
-                                 <td className="py-2 px-3 text-right border-r border-slate-300 print:border-black">{tx.type === 'INCOME' ? formatMoney(tx.amount).replace('฿', '').trim() : '-'}</td>
-                                 <td className="py-2 px-3 text-right">{tx.type === 'EXPENSE' ? formatMoney(tx.amount).replace('฿', '').trim() : '-'}</td>
+                                 <td className="py-2 px-3 border-r border-slate-300 print:border-black text-center">{tx.category}</td>
+                                 <td className="py-2 px-3 text-right border-r border-slate-300 print:border-black font-medium">{tx.type === 'INCOME' ? formatMoney(tx.amount).replace('฿', '').trim() : '-'}</td>
+                                 <td className="py-2 px-3 text-right font-medium">{tx.type === 'EXPENSE' ? formatMoney(tx.amount).replace('฿', '').trim() : '-'}</td>
                                </tr>
                              ))
                            )}
@@ -1248,14 +1262,18 @@
                          </tbody>
                        </table>
 
-                       <div className="mt-20 flex justify-between px-12 text-sm print:break-inside-avoid">
-                         <div className="text-center">
-                           <p className="mb-8">ลงชื่อ.........................................................ผู้จัดทำ</p>
-                           <p>(.........................................................)</p>
+                       <div className="mt-24 flex justify-between px-12 text-sm print:break-inside-avoid">
+                         <div className="text-center w-48">
+                           <div className="flex items-end justify-center mb-3">
+                             <span className="inline-block w-full border-b border-black border-dotted"></span>
+                           </div>
+                           <p className="mt-2 font-semibold">ผู้จัดทำ</p>
                          </div>
-                         <div className="text-center">
-                           <p className="mb-8">ลงชื่อ.........................................................ผู้ตรวจสอบ</p>
-                           <p>(.........................................................)</p>
+                         <div className="text-center w-48">
+                           <div className="flex items-end justify-center mb-3">
+                             <span className="inline-block w-full border-b border-black border-dotted"></span>
+                           </div>
+                           <p className="mt-2 font-semibold">ผู้ตรวจสอบ</p>
                          </div>
                        </div>
                     </div>
